@@ -6,7 +6,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import matplotlib.pyplot as plt
+import scipy
+from scipy.spatial import ConvexHull
 import dash
 
 # Constants
@@ -25,7 +26,6 @@ def load_points(path=POINTS_CSV, max_pts=None, ring=None):
     if ring is not None:
         df = df[df["ring"] == ring]
         print(f" - Filtred to ring={ring} {len(df):,} points")
-    
     return df
 
 def load_imu(path=IMU_CSV):
@@ -53,6 +53,7 @@ def find_ceiling(df):
     Finds the ceiling height by looking for the statistical mode of the Z-axis
     We must put more weight to the points closer to x=0 and y=0
     """
+    df = df.copy()
     df['weight'] = 20 - (df['x'].abs() + df['y'].abs())
     df['weight'] = df['weight'].clip(lower=0.1)
 
@@ -84,7 +85,7 @@ def find_walls(df, ceiling, margin=0.1):
     upper = middle * (1 + margin)
 
     strip = df[df['z'].between(lower, upper)]
-
+    print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
     return strip
 
 def find_corners_eigenvectors(df):
@@ -95,29 +96,23 @@ def find_corners_eigenvectors(df):
     # 1. Position at center
     coords = df[['x', 'y']].values
     center = coords.mean(axis=0)
-    centered_coords = coords - center
+    centered = coords - center
 
-    # 2. Calculate Covariance Matrix and Eigenvectors
-    # This tells us the 'rotation' of the room relative to the sensor
-    cov = np.cov(centered_coords.T)
-    eigenvalues, eigenvectors = np.linalg.eigh(cov)
+    cov = np.cov(centered.T)
+    _, eigenvectors = np.linalg.eigh(cov)
     
-    # 3. Project points onto the eigenvectors (aligning the room to axes)
-    aligned_coords = centered_coords @ eigenvectors
+    aligned = centered @ eigenvectors
     
-    # 4. Find the min/max in the aligned space (the bounds of the rectangle)
-    min_x, min_y = aligned_coords.min(axis=0)
-    max_x, max_y = aligned_coords.max(axis=0)
+    lo_x, hi_x = np.percentile(aligned[:,0], [1,99])
+    lo_y, hi_y = np.percentile(aligned[:,1], [1,99])
     
-    # 5. Define the 4 corners in aligned space
     aligned_corners = np.array([
-        [min_x, min_y],
-        [max_x, min_y],
-        [max_x, max_y],
-        [min_x, max_y]
+        [lo_x, lo_y],
+        [hi_x, lo_y],
+        [hi_x, hi_y],
+        [lo_x, hi_y]
     ])
     
-    # 6. Rotate corners back to original space
     world_corners = (aligned_corners @ eigenvectors.T) + center
     
     print(f"[PCA] Found 4 corners using principal axes")
@@ -127,92 +122,94 @@ def find_corners_derivate(df, bins=360):
     """
     Finds corners by detecting sharp changes in the radial distance gradient in polar coordinates.
     """
-    # 1. Position at center
     coords = df[['x', 'y']].values
     center = coords.mean(axis=0)
-    x_c = df['x'] - center[0]
-    y_c = df['y'] - center[1]
+    x_c = df['x'].values - center[0]
+    y_c = df['y'].values - center[1]
 
-    # 2. Switch to polar coordinates
     r = np.sqrt(x_c**2 + y_c**2)
     theta = np.arctan2(y_c, x_c)
 
-    # 3. Bin the data to get a smooth "wall profile"
-    # We take the median radius for every degree to ignore noise
     df_polar = pd.DataFrame({'theta': theta, 'r': r})
-    df_polar['theta_bin'] = pd.cut(df_polar['theta'], bins=np.linspace(-np.pi, np.pi, bins))
-    profile = df_polar.groupby('theta_bin', observed=True)['r'].median().interpolate()
+    bin_edges = np.linspace(-np.pi, np.pi, bins + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    df_polar['theta_bin'] = pd.cut(df_polar['theta'], bins=bin_edges, labels=False)
 
-    # 4. Calculate the derivative (gradient) of the radius
-    # In a rectangle, dr/dtheta peaks at corners
-    diff = np.abs(np.gradient(profile.values))
+    def near_median(g):
+        q = g.quantile(0.10)
+        return g[g <= q].median() if len(g) else np.nan
+
+    profile_series = df_polar.groupby('theta_bin', observed=False)['r'].apply(near_median)
+    profile = profile_series.reindex(range(bins)).interpolate(method='linear').fillna(method='bfill').fillna(method='ffill').values
+
+    from scipy.ndimage import gaussian_filter1d
+    profile_smooth = gaussian_filter1d(profile, sigma=3)
+    diff = np.abs(np.gradient(profile_smooth))
+
+    min_sep = int(bins * (70 / 360))
+
+    peaks = []
+    diff_copy = diff.copy()
+    for _ in range(4):
+        idx = int(np.argmax(diff_copy))
+        peaks.append(idx)
+        # Suppress a window around this peak
+        lo = max(0, idx - min_sep)
+        hi = min(bins, idx + min_sep)
+        diff_copy[lo:hi] = 0
     
-    # 5. Find indices of the 4 largest peaks (should be roughly 90 deg apart)
-    # We use a simple sort here, but in production, use scipy.signal.find_peaks
-    peak_indices = np.argsort(diff)[-4:]
-    
-    # 6. Map back to XY
     detected_corners = []
-    bin_centers = np.linspace(-np.pi, np.pi, bins)
-    for idx in peak_indices:
+    for idx in peaks:
         angle = bin_centers[idx]
-        dist = profile.values[idx]
+        dist = profile_smooth[idx]
         detected_corners.append([
             dist * np.cos(angle) + center[0],
-            dist * np.sin(angle) + center[1]
+            dist * np.sin(angle) + center[1],
         ])
 
     print(f"[Derivative] Detected {len(detected_corners)} corners via radial gradient")
     return np.array(detected_corners)
 
-def find_corners_kmean(df):
+def find_corners_kmean(df, max_itera=300, tol=1e-4):
     X = df[['x', 'y']].values
-    I, N = X.shape
-    K = 4
-
-    mean = np.mean(X, axis=0)
-    std = np.std(X, axis=0)
-    X = (X - mean) / std
+    
+    hull = ConvexHull(X)
+    X_hull = X[hull.vertices]
+    
+    mean = X_hull.mean(axis=0)
+    std  = X_hull.std(axis=0) + 1e-8
+    Xn   = (X_hull - mean) / std
 
     np.random.seed(0)
-    id = np.random.choice(I, K, replace=False)
-    mu = X[id]
+    K = 4
+    centroids = [Xn[np.random.randint(len(Xn))]]
+    for _ in range(K - 1):
+        dists = np.min(
+            np.stack([np.sum((Xn - c) ** 2, axis=1) for c in centroids], axis=1),
+            axis=1,
+        )
+        probs = dists / dists.sum()
+        centroids.append(Xn[np.random.choice(len(Xn), p=probs)])
+    centroids = np.array(centroids)
 
-    itera = 0
-    y = np.zeros(I)
-    mu_new = np.zeros((K, N))
+    for itera in range(1, max_itera + 1):
+        diffs = Xn[:, None, :] - centroids[None, :, :]   # (N, K, 2)
+        labels = np.argmin((diffs ** 2).sum(axis=2), axis=1)
 
-    while True:
-        itera += 1
+        new_centroids = np.array([
+            Xn[labels == k].mean(axis=0) if (labels == k).any() else centroids[k]
+            for k in range(K)
+        ])
 
-        for i in range(I):
-            distances = []
-            for k in range(K):
-                distances.append(np.linalg.norm(X[i] - mu[k])**2)
-            y[i] = np.argmin(distances)
-        
-        mu_new = np.zeros((K, N))
-        for k in range(K):
-            numerator = np.zeros(N)
-            denominator = 0
-            for i in range(I):
-                if y[i] == k:
-                    numerator += X[i]
-                    denominator += 1
-            if denominator != 0:
-                mu_new[k] = numerator / denominator
-            else:
-                mu_new[k] = mu[k]
-        
-        if np.allclose(mu, mu_new):
-            mu = mu_new
+        if np.allclose(centroids, new_centroids, atol=tol):
+            centroids = new_centroids
             break
-        mu = mu_new
-    mu = mu_new
+        centroids = new_centroids
+
+    world_centroids = centroids * std + mean
 
     print(f"[Kmean] Found 4 corners using Kmean algo in {itera} iterations")
-    print(mu)
-    return mu
+    return world_centroids
 
 # Visualisers
 def create_pc_figure(df, c_pca=None, c_grad=None, c_km=None, draw_max=NBR_POINTS):

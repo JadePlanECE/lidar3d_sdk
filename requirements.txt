@@ -3,4 +3,5 @@ pandas
 argparse
 matplotlib
 PlotPy
+scipy
 dash
