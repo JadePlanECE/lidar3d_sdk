@@ -76,3 +76,4 @@ data/
 lib/
 lib64/
 bin/
+/share
