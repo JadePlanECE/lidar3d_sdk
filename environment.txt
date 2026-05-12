@@ -1,8 +1,8 @@
 apt install python3.10-venv
 
-python3 -m venv unitree_lidar_sdk
+python3 -m venv lidar_sdk
 
-source unitree_lidar_sdk/bin/activate
+source lidar_sdk/bin/activate
 
 sudo apt-get install python3-pip
 
@@ -11,3 +11,7 @@ pip install -r requirements.txt
 -
 
 deactivate
+
+-
+
+rm -rf lidar_sdk

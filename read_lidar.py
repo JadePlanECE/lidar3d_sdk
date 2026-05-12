@@ -42,14 +42,10 @@ def process_data_points(df):
     df_no_ceiling = erase_ceiling(df, ceiling_z)
     df_walls = find_walls(df_no_ceiling, ceiling_z)
     
-    corners_pca = find_corners(df_walls)
-
-    fake = np.array([
-        [0.0, 0.0],
-        [1.0, 1.0]
-    ])
+    corners_pca = find_corners_eigenvectors(df_walls)
+    corners_grad = find_corners_derivate(df_walls)
     
-    return df_walls, corners_pca, fake
+    return df_walls, corners_pca, corners_grad
 
 def find_ceiling(df):
     """
