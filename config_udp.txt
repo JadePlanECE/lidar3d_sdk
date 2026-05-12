@@ -1,0 +1,13 @@
+ifconfig enP8p1s0
+
+sudo tcpdump -i enP8p1s0 -n
+
+sudo ifconfig enP8p1s0 192.168.1.100 netmask 255.255.255.0 up
+
+sudo nmcli connection modify "Wired connection 1" ipv4.addresses 192.168.1.100/24 ipv4.method manual
+
+sudo nmcli connection up "Wired connection 1"
+
+ip route
+
+ping 192.168.1.62
