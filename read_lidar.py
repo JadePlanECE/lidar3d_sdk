@@ -12,7 +12,7 @@ import dash
 # Constants
 POINTS_CSV = "./data/points.csv"
 IMU_CSV = "./data/imu.csv"
-NBR_POINTS = 1000
+NBR_POINTS = 200000
 
 # Load data
 def load_points(path=POINTS_CSV, max_pts=None, ring=None):
@@ -44,8 +44,9 @@ def process_data_points(df):
     
     corners_pca = find_corners_eigenvectors(df_walls)
     corners_grad = find_corners_derivate(df_walls)
+    corners_km = find_corners_kmean(df_walls)
     
-    return df_walls, corners_pca, corners_grad
+    return df_walls, corners_pca, corners_grad, corners_km
 
 def find_ceiling(df):
     """
@@ -86,12 +87,6 @@ def find_walls(df, ceiling, margin=0.1):
 
     return strip
 
-"""
-    Finds corners by looking at the intersection of high-density vertical segments
-    1. Position yourself at the center of the room (instead of (0;0))
-    2. switch to polar coordinates
-    3. Calculate the eigenvectors to find the 4 corners (rectangular room)
-"""
 def find_corners_eigenvectors(df):
     """
     Finds corners using Principal Component Analysis (PCA) logic.
@@ -128,12 +123,6 @@ def find_corners_eigenvectors(df):
     print(f"[PCA] Found 4 corners using principal axes")
     return world_corners
 
-"""
-    Finds corners by looking at the intersection of high-density vertical segments
-    1. Position yourself at the center of the room (instead of (0;0))
-    2. switch to polar coordinates
-    3. Calculate the derivative of the wall dentsity changes sharply
-"""
 def find_corners_derivate(df, bins=360):
     """
     Finds corners by detecting sharp changes in the radial distance gradient in polar coordinates.
@@ -176,8 +165,57 @@ def find_corners_derivate(df, bins=360):
     print(f"[Derivative] Detected {len(detected_corners)} corners via radial gradient")
     return np.array(detected_corners)
 
+def find_corners_kmean(df):
+    X = df[['x', 'y']].values
+    I, N = X.shape
+    K = 4
+
+    mean = np.mean(X, axis=0)
+    std = np.std(X, axis=0)
+    X = (X - mean) / std
+
+    np.random.seed(0)
+    id = np.random.choice(I, K, replace=False)
+    mu = X[id]
+
+    itera = 0
+    y = np.zeros(I)
+    mu_new = np.zeros((K, N))
+
+    while True:
+        itera += 1
+
+        for i in range(I):
+            distances = []
+            for k in range(K):
+                distances.append(np.linalg.norm(X[i] - mu[k])**2)
+            y[i] = np.argmin(distances)
+        
+        mu_new = np.zeros((K, N))
+        for k in range(K):
+            numerator = np.zeros(N)
+            denominator = 0
+            for i in range(I):
+                if y[i] == k:
+                    numerator += X[i]
+                    denominator += 1
+            if denominator != 0:
+                mu_new[k] = numerator / denominator
+            else:
+                mu_new[k] = mu[k]
+        
+        if np.allclose(mu, mu_new):
+            mu = mu_new
+            break
+        mu = mu_new
+    mu = mu_new
+
+    print(f"[Kmean] Found 4 corners using Kmean algo in {itera} iterations")
+    print(mu)
+    return mu
+
 # Visualisers
-def create_pc_figure(df, c_pca=None, c_grad=None, draw_max=NBR_POINTS):
+def create_pc_figure(df, c_pca=None, c_grad=None, c_km=None, draw_max=NBR_POINTS):
     if len(df) > draw_max:
         df = df.sample(n=draw_max)
     
@@ -197,7 +235,7 @@ def create_pc_figure(df, c_pca=None, c_grad=None, draw_max=NBR_POINTS):
         fig.add_trace(go.Scatter3d(
             x=c_pca[:, 0], y=c_pca[:, 1], z=[z_display] * len(c_pca),
             mode='markers+text',
-            marker=dict(size=8, color='red', symbol='diamond'),
+            marker=dict(size=6, color='red', symbol='diamond'),
             name='Corners (PCA)',
             text=["PCA Corner"] * len(c_pca)
         ))
@@ -207,9 +245,19 @@ def create_pc_figure(df, c_pca=None, c_grad=None, draw_max=NBR_POINTS):
         fig.add_trace(go.Scatter3d(
             x=c_grad[:, 0], y=c_grad[:, 1], z=[z_display] * len(c_grad),
             mode='markers+text',
-            marker=dict(size=8, color='cyan', symbol='circle'),
+            marker=dict(size=6, color='blue', symbol='circle'),
             name='Corners (Gradient)',
             text=["Grad Corner"] * len(c_grad)
+        ))
+
+    # Add Me Corners (Green)
+    if c_km is not None:
+        fig.add_trace(go.Scatter3d(
+            x=c_km[:, 0], y=c_km[:, 1], z=[z_display] * len(c_km),
+            mode='markers+text',
+            marker=dict(size=6, color='green', symbol='cross'),
+            name='Corners (Kmean)',
+            text=["Kmean Corner"] * len(c_km)
         ))
 
     fig.update_traces(marker=dict(size=1.5), selector=dict(type='scatter3d', mode='markers'))
@@ -253,10 +301,10 @@ if __name__ == "__main__":
     df_imu = load_imu()
 
     # Process data points
-    df_pts, c_pca, c_grad = process_data_points(df_pts)
+    df_pts, c_pca, c_grad, c_km = process_data_points(df_pts)
 
     # Generate Figures
-    fig_pc = create_pc_figure(df_pts, c_pca, c_grad)
+    fig_pc = create_pc_figure(df_pts, c_pca, c_grad, c_km)
     fig_imu = create_imu_figure(df_imu)
 
     # Initialize Dash App
