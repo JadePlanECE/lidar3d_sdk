@@ -67,3 +67,12 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# data
+*.csv
+data/
+
+# autres
+lib/
+lib64/
+bin/
