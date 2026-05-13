@@ -14,7 +14,7 @@ import dash
 # Constants
 POINTS_CSV = "./data/points_time.csv"
 IMU_CSV = "./data/imu_time.csv"
-NBR_POINTS = 200000
+NBR_POINTS = 100000
 
 # Load data
 def load_points(path=POINTS_CSV, max_pts=None):
@@ -41,14 +41,9 @@ def process_data_points(df):
 
     if df_walls.empty:
         print("[Error] No wall points found. Adjust your Z-thresholds.")
-        return df_walls, None, None, None, None
+        return df_no_ceiling, None
 
-    corners_pca = find_corners_eigenvectors(df_walls)
-    corners_grad = find_corners_derivate(df_walls)
-    corners_ran = find_corners_ransac(df_walls)
-    corners_km = find_corners_kmean(df_walls)
-    
-    return df_walls, corners_pca, corners_grad, corners_ran, corners_km
+    return df_no_ceiling, find_corners(df_walls)
 
 def find_ceiling(df):
     """
@@ -102,89 +97,7 @@ def find_walls(df, ceiling, margin=0.1):
     print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
     return strip
 
-def find_corners_eigenvectors(df):
-    """
-    Finds corners using Principal Component Analysis (PCA) logic.
-    Assumes a rectangular room.
-    """
-    # 1. Position at center
-    coords = df[['x', 'y']].values
-    center = coords.mean(axis=0)
-    centered = coords - center
-
-    cov = np.cov(centered.T)
-    _, eigenvectors = np.linalg.eigh(cov)
-    
-    aligned = centered @ eigenvectors
-    
-    lo_x, hi_x = np.percentile(aligned[:,0], [1,99])
-    lo_y, hi_y = np.percentile(aligned[:,1], [1,99])
-    
-    aligned_corners = np.array([
-        [lo_x, lo_y],
-        [hi_x, lo_y],
-        [hi_x, hi_y],
-        [lo_x, hi_y]
-    ])
-    
-    world_corners = (aligned_corners @ eigenvectors.T) + center
-    
-    print(f"[PCA] Found 4 corners using principal axes")
-    return world_corners
-
-def find_corners_derivate(df, bins=360):
-    """
-    Finds corners by detecting sharp changes in the radial distance gradient in polar coordinates.
-    """
-    coords = df[['x', 'y']].values
-    center = coords.mean(axis=0)
-    x_c = df['x'].values - center[0]
-    y_c = df['y'].values - center[1]
-
-    r = np.sqrt(x_c**2 + y_c**2)
-    theta = np.arctan2(y_c, x_c)
-
-    df_polar = pd.DataFrame({'theta': theta, 'r': r})
-    bin_edges = np.linspace(-np.pi, np.pi, bins + 1)
-    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    df_polar['theta_bin'] = pd.cut(df_polar['theta'], bins=bin_edges, labels=False)
-
-    def near_median(g):
-        q = g.quantile(0.10)
-        return g[g <= q].median() if len(g) else np.nan
-
-    profile_series = df_polar.groupby('theta_bin', observed=False)['r'].apply(near_median)
-    profile = profile_series.reindex(range(bins)).interpolate(method='linear').bfill().ffill().values
-
-    from scipy.ndimage import gaussian_filter1d
-    profile_smooth = gaussian_filter1d(profile, sigma=3)
-    diff = np.abs(np.gradient(profile_smooth))
-
-    min_sep = int(bins * (70 / 360))
-
-    peaks = []
-    diff_copy = diff.copy()
-    for _ in range(4):
-        idx = int(np.argmax(diff_copy))
-        peaks.append(idx)
-        # Suppress a window around this peak
-        lo = max(0, idx - min_sep)
-        hi = min(bins, idx + min_sep)
-        diff_copy[lo:hi] = 0
-    
-    detected_corners = []
-    for idx in peaks:
-        angle = bin_centers[idx]
-        dist = profile_smooth[idx]
-        detected_corners.append([
-            dist * np.cos(angle) + center[0],
-            dist * np.sin(angle) + center[1],
-        ])
-
-    print(f"[Derivative] Detected {len(detected_corners)} corners via radial gradient")
-    return np.array(detected_corners)
-
-def find_corners_ransac(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_threshold=0.3):
+def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_threshold=0.3):
     """
     1. Detect wall lines using RANSAC
     2. Project points onto lines to find endpoints
@@ -253,49 +166,8 @@ def find_corners_ransac(df, max_walls=10, min_points=100, dist_threshold=0.2, co
     print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
     return np.array(final_corners)
 
-def find_corners_kmean(df, max_itera=300, tol=1e-4):
-    X = df[['x', 'y']].values
-    
-    hull = ConvexHull(X)
-    X_hull = X[hull.vertices]
-    
-    mean = X_hull.mean(axis=0)
-    std  = X_hull.std(axis=0) + 1e-8
-    Xn   = (X_hull - mean) / std
-
-    np.random.seed(0)
-    K = 4
-    centroids = [Xn[np.random.randint(len(Xn))]]
-    for _ in range(K - 1):
-        dists = np.min(
-            np.stack([np.sum((Xn - c) ** 2, axis=1) for c in centroids], axis=1),
-            axis=1,
-        )
-        probs = dists / dists.sum()
-        centroids.append(Xn[np.random.choice(len(Xn), p=probs)])
-    centroids = np.array(centroids)
-
-    for itera in range(1, max_itera + 1):
-        diffs = Xn[:, None, :] - centroids[None, :, :]   # (N, K, 2)
-        labels = np.argmin((diffs ** 2).sum(axis=2), axis=1)
-
-        new_centroids = np.array([
-            Xn[labels == k].mean(axis=0) if (labels == k).any() else centroids[k]
-            for k in range(K)
-        ])
-
-        if np.allclose(centroids, new_centroids, atol=tol):
-            centroids = new_centroids
-            break
-        centroids = new_centroids
-
-    world_centroids = centroids * std + mean
-
-    print(f"[Kmean] Found 4 corners using Kmean algo in {itera} iterations")
-    return world_centroids
-
 # Visualisers
-def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_max=NBR_POINTS):
+def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     if len(df) > draw_max:
         df = df.sample(n=draw_max)
     
@@ -303,7 +175,9 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
         df, x='x', y='y', z='z',
         color='intensity',
         color_continuous_scale='Plasma',
-        opacity=0.5,
+        range_x=[min_x - 1, max_x + 1],
+        range_y=[min_y - 1, max_y + 1],
+        opacity=0.4,
         title=f"LiDAR Point Cloud ({len(df):,} pts)"
     )
 
@@ -319,46 +193,14 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
     z_display = df['z'].mean()
 
     # Add Ransac Corners (Green)
-    if c_ran is not None:
+    if c is not None:
         fig.add_trace(go.Scatter3d(
-            x=c_ran[:, 0], y=c_ran[:, 1], z=[z_display] * len(c_ran),
+            x=c[:, 0], y=c[:, 1], z=[z_display] * len(c),
             mode='markers+text',
             marker=dict(size=6, color='green', symbol='diamond'),
             name='Corners (Ransac)',
-            text=["Ransac Corner"] * len(c_ran)
+            text=["Ransac Corner"] * len(c)
         ))
-    
-    """
-    # Add PCA Corners (Red)
-    if c_pca is not None:
-        fig.add_trace(go.Scatter3d(
-            x=c_pca[:, 0], y=c_pca[:, 1], z=[z_display] * len(c_pca),
-            mode='markers+text',
-            marker=dict(size=6, color='red', symbol='diamond'),
-            name='Corners (PCA)',
-            text=["PCA Corner"] * len(c_pca)
-        ))
-
-    # Add Gradient Corners (Blue)
-    if c_grad is not None:
-        fig.add_trace(go.Scatter3d(
-            x=c_grad[:, 0], y=c_grad[:, 1], z=[z_display] * len(c_grad),
-            mode='markers+text',
-            marker=dict(size=6, color='blue', symbol='diamond'),
-            name='Corners (Gradient)',
-            text=["Grad Corner"] * len(c_grad)
-        ))
-
-    # Add kmean Corners (Black)
-    if c_km is not None:
-        fig.add_trace(go.Scatter3d(
-            x=c_km[:, 0], y=c_km[:, 1], z=[z_display] * len(c_km),
-            mode='markers+text',
-            marker=dict(size=6, color='black', symbol='cross'),
-            name='Corners (Kmean)',
-            text=["Kmean Corner"] * len(c_km)
-        ))
-    """
 
     fig.update_traces(marker=dict(size=1.5), selector=dict(type='scatter3d', mode='markers'))
     fig.update_layout(
@@ -368,7 +210,7 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
     )
     return fig
 
-def create_imu_figure(df):
+def create_imu_figure(df, min_x, min_y, max_x, max_y):
     # Create subplots: one for Accel, one for Quaternions
     fig = make_subplots(rows=2, cols=1, 
                         shared_xaxes=True, 
@@ -405,28 +247,60 @@ if __name__ == "__main__":
     df_imu = load_imu()
 
     # Process data points
-    df_pts, c_pca, c_grad, c_ran, c_km = process_data_points(df_pts)
+    df_pts, c = process_data_points(df_pts)
 
-    # Generate Figures
-    fig_pc = create_pc_figure(df_pts, c_pca, c_grad, c_ran, c_km)
-    fig_imu = create_imu_figure(df_imu)
+    # Pre-calculate time range
+    min_time = df_pts['time'].min()
+    min_x = df_pts['x'].min()
+    min_y = df_pts['y'].min()
+    max_time = df_pts['time'].max()
+    max_x = df_pts['x'].max()
+    max_y = df_pts['y'].max()
 
     # Initialize Dash App
     app = dash.Dash(__name__)
 
-    app.layout = dash.html.Div(style={'backgroundColor': '#1e1e1e', 'color': 'white', 'padding': '20px'}, children=[
+    fig_imu = create_imu_figure(df_imu, min_x, min_y, max_x, max_y)
+
+    app.layout = dash.html.Div(style={'backgroundColor': 'white', 'color': 'black', 'padding': '20px'}, children=[
         dash.html.H1("LiDAR & IMU", style={'textAlign': 'center'}),
         
-        dash.html.Div([
-            dash.html.H3("3D Point Cloud"),
-            dash.dcc.Graph(figure=fig_pc, style={'height': '70vh'})
-        ], style={'padding': '10px', 'border': '1px solid #444', 'marginBottom': '20px'}),
+        # --- Control Panel ---
+        dash.html.Div(
+            dash.dcc.Slider(
+                id='time-slider',
+                min=min_time,
+                max=max_time,
+                value=min_time,
+                marks=None,
+                step=1,
+                tooltip={"placement": "bottom", "always_visible": True},
+            ),
+            style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '10px', 'marginBottom': '20px'}
+        ),
 
-        dash.html.Div([
-            dash.html.H3("IMU Timeseries"),
-            dash.dcc.Graph(figure=fig_imu)
-        ], style={'padding': '10px', 'border': '1px solid #444'})
+        # --- Visuals ---
+        dash.html.Div(
+            dash.dcc.Graph(id='fig_pts', style={'height': '70vh'}), 
+            style={'padding': '10px', 'border': '1px solid #444', 'marginBottom': '20px'}
+        ),
+
+        dash.html.Div(
+            dash.dcc.Graph(figure=fig_imu),
+            style={'padding': '10px', 'border': '1px solid #444'}
+        )
     ])
+
+    @dash.callback(
+        dash.Output('fig_pts', 'figure'),
+        dash.Input('time-slider', 'value')
+    )
+    def update_figures(selected_time):
+        filtered_df_pts = df_pts[df_pts['time'].between(selected_time - 0.5, selected_time + 0.5)].copy()
+
+        fig_pts = create_pc_figure(filtered_df_pts, c, min_x, min_y, max_x, max_y)
+
+        return fig_pts
 
     # Run server on 0.0.0.0 to make it accessible on the local network
     print(f"\n--- Server starting on port {args.port} ---")
