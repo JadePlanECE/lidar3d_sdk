@@ -1,6 +1,7 @@
 import argparse
 import sys
 import os
+import warnings
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -11,21 +12,17 @@ from sklearn.linear_model import RANSACRegressor
 import dash
 
 # Constants
-POINTS_CSV = "./data/points.csv"
-IMU_CSV = "./data/imu.csv"
+POINTS_CSV = "./data/points_time.csv"
+IMU_CSV = "./data/imu_time.csv"
 NBR_POINTS = 200000
 
 # Load data
-def load_points(path=POINTS_CSV, max_pts=None, ring=None):
+def load_points(path=POINTS_CSV, max_pts=None):
     if not os.path.exists(path):
         sys.exit(f"[Error] File not found {path}\n")
     
     df = pd.read_csv(path, nrows=max_pts)
     print(f"[Points] Loaded {len(df):,} rows from {path}")
-
-    if ring is not None:
-        df = df[df["ring"] == ring]
-        print(f" - Filtred to ring={ring} {len(df):,} points")
     return df
 
 def load_imu(path=IMU_CSV):
@@ -41,10 +38,10 @@ def process_data_points(df):
     ceiling_z = find_ceiling(df)
     df_no_ceiling = erase_ceiling(df, ceiling_z)
     df_walls = find_walls(df_no_ceiling, ceiling_z)
-    
-    #corners = find_corners(df_walls)
-    
-    #return df_no_ceiling, corners
+
+    if df_walls.empty:
+        print("[Error] No wall points found. Adjust your Z-thresholds.")
+        return df_walls, None, None, None, None
 
     corners_pca = find_corners_eigenvectors(df_walls)
     corners_grad = find_corners_derivate(df_walls)
@@ -58,6 +55,10 @@ def find_ceiling(df):
     Finds the ceiling height by looking for the statistical mode of the Z-axis
     We must put more weight to the points closer to x=0 and y=0
     """
+    if df.empty:
+        warnings.warn("[WARNING: find_ceiling] Directory 'df' is empty")
+        return 0
+    
     df = df.copy()
     df['weight'] = 20 - (df['x'].abs() + df['y'].abs())
     df['weight'] = df['weight'].clip(lower=0.1)
@@ -72,6 +73,10 @@ def erase_ceiling(df, z, threshold=0.4):
     """
     Removes points that are within a threshold of the detected ceiling + the upper part
     """
+    if df.empty:
+        warnings.warn("[WARNING: erase_ceiling] Directory 'df' is empty")
+        return df
+    
     return df[df['z'] < (z - threshold)].copy()
 
 def find_walls(df, ceiling, margin=0.1):
@@ -81,6 +86,10 @@ def find_walls(df, ceiling, margin=0.1):
     - 5% of the lowest points
     df is then a strip (in theory, the shape of the room)
     """
+    if df.empty:
+        warnings.warn("[WARNING: find_walls] Directory 'df' is empty")
+        return df
+    
     lowest_5 = df['z'].quantile(0.05)
     middle = (ceiling - lowest_5) / 2
     print(f"[Process] Middle: {middle}")
@@ -92,35 +101,6 @@ def find_walls(df, ceiling, margin=0.1):
     strip = df[df['z'].between(lower, upper)]
     print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
     return strip
-
-def find_corners(df):
-    """
-    PCA-based corner detection for a rectangular room.
-    """
-    coords = df[['x', 'y']].values
-    center = coords.mean(axis=0)
-    centered = coords - center
-
-    cov = np.cov(centered.T)
-    _, eigenvectors = np.linalg.eigh(cov)
-    
-    # Project onto principal axes
-    aligned = centered @ eigenvectors
-    
-    lo_x, hi_x = np.percentile(aligned[:,0], [1,99])
-    lo_y, hi_y = np.percentile(aligned[:,1], [1,99])
-    
-    aligned_corners = np.array([
-        [lo_x, lo_y],
-        [hi_x, lo_y],
-        [hi_x, hi_y],
-        [lo_x, hi_y]
-    ])
-    
-    world_corners = (aligned_corners @ eigenvectors.T) + center
-    
-    print(f"[PCA] Found 4 corners using principal axes")
-    return world_corners
 
 def find_corners_eigenvectors(df):
     """
@@ -338,6 +318,17 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
 
     z_display = df['z'].mean()
 
+    # Add Ransac Corners (Green)
+    if c_ran is not None:
+        fig.add_trace(go.Scatter3d(
+            x=c_ran[:, 0], y=c_ran[:, 1], z=[z_display] * len(c_ran),
+            mode='markers+text',
+            marker=dict(size=6, color='green', symbol='diamond'),
+            name='Corners (Ransac)',
+            text=["Ransac Corner"] * len(c_ran)
+        ))
+    
+    """
     # Add PCA Corners (Red)
     if c_pca is not None:
         fig.add_trace(go.Scatter3d(
@@ -357,16 +348,6 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
             name='Corners (Gradient)',
             text=["Grad Corner"] * len(c_grad)
         ))
-    
-    # Add Ransac Corners (Green)
-    if c_ran is not None:
-        fig.add_trace(go.Scatter3d(
-            x=c_ran[:, 0], y=c_ran[:, 1], z=[z_display] * len(c_ran),
-            mode='markers+text',
-            marker=dict(size=6, color='green', symbol='diamond'),
-            name='Corners (Ransac)',
-            text=["Ransac Corner"] * len(c_ran)
-        ))
 
     # Add kmean Corners (Black)
     if c_km is not None:
@@ -377,6 +358,7 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_ma
             name='Corners (Kmean)',
             text=["Kmean Corner"] * len(c_km)
         ))
+    """
 
     fig.update_traces(marker=dict(size=1.5), selector=dict(type='scatter3d', mode='markers'))
     fig.update_layout(
@@ -393,7 +375,12 @@ def create_imu_figure(df):
                         vertical_spacing=0.1,
                         subplot_titles=("Linear Acceleration (m/s²)", "Quaternions"))
 
-    t = df["seq"]
+    if 'time_sec' in df.columns:
+        t = df["time_sec"] + (df["time_nsec"] / 1e9)
+        x_label = "Time (seconds)"
+    else:
+        t = df["seq"]
+        x_label = "Sequence Number"
 
     # Accelerometer traces
     for col in ["acc_x", "acc_y", "acc_z"]:
@@ -404,18 +391,17 @@ def create_imu_figure(df):
         fig.add_trace(go.Scatter(x=t, y=df[col], name=col, mode='lines'), row=2, col=1)
 
     fig.update_layout(height=600, title_text="IMU Sensor Data", showlegend=True)
-    fig.update_xaxes(title_text="Sequence Number", row=2, col=1)
+    fig.update_xaxes(title_text=x_label, row=2, col=1)
     return fig
 
 # Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualise LiDAR and IMU CSV data via Dash")
-    parser.add_argument("--ring", type=int, default=None, help="Show only this ring index")
     parser.add_argument("--max-pts", type=int, default=None, help="Max point rows to load")
     parser.add_argument("--port", type=int, default=8050, help="Visualisation backend for point cloud (default: open3d)")
     args = parser.parse_args()
 
-    df_pts = load_points(max_pts=args.max_pts, ring=args.ring)
+    df_pts = load_points(max_pts=args.max_pts)
     df_imu = load_imu()
 
     # Process data points

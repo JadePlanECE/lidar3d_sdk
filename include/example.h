@@ -20,7 +20,7 @@ void exampleProcess(UnitreeLidarReader *lreader){
     if (!pts_file_) {
         std::cerr << "[Logger] Cannot open " << PATH_POINTS_CSV << std::endl;
     } else {
-        pts_file_ << "seq,x,y,z,intensity,time_offset,ring\n";
+        pts_file_ << "id,time,x,y,z,intensity\n";
         std::cout << "[Logger] Writing points to " << PATH_POINTS_CSV << std::endl;
     }
 
@@ -29,7 +29,7 @@ void exampleProcess(UnitreeLidarReader *lreader){
     if (!imu_file_) {
         std::cerr << "[Logger] Cannot open " << PATH_IMU_CSV << std::endl;
     } else {
-        imu_file_ << "seq,qw,qx,qy,qz,ang_x,ang_y,ang_z,acc_x,acc_y,acc_z\n";
+        imu_file_ << "seq,time_sec,time_nsec,qw,qx,qy,qz,ang_x,ang_y,ang_z,acc_x,acc_y,acc_z\n";
         std::cout << "[Logger] Writing IMU data to " << PATH_IMU_CSV << std::endl;
     }
 
@@ -65,13 +65,13 @@ void exampleProcess(UnitreeLidarReader *lreader){
             {
                 if (imu_file_.is_open()) {
                     imu_file_ << imu.info.seq << ","
+                        << imu.info.stamp.sec << "," << imu.info.stamp.nsec << ","
                         << std::fixed << std::setprecision(6)
                         << imu.quaternion[0] << "," << imu.quaternion[1] << "," << imu.quaternion[2] << "," << imu.quaternion[3] << ","
                         << imu.angular_velocity[0] << "," << imu.angular_velocity[1] << "," << imu.angular_velocity[2] << ","
                         << imu.linear_acceleration[0] << "," << imu.linear_acceleration[1] << "," << imu.linear_acceleration[2] << "\n";
                 }
             }
-
             break;
 
         case LIDAR_POINT_DATA_PACKET_TYPE:
@@ -79,14 +79,13 @@ void exampleProcess(UnitreeLidarReader *lreader){
             {
                 if (pts_file_.is_open()) {
                     for (size_t i = 0; i < cloud.points.size(); i++) {
-                        pts_file_ << cloud.id << ","
+                        pts_file_ << cloud.id << "," << cloud.stamp << ","
                             << std::fixed << std::setprecision(4)
                             << cloud.points[i].x << "," << cloud.points[i].y << "," << cloud.points[i].z << ","
-                            << cloud.points[i].intensity << "," << cloud.points[i].time << "," << cloud.points[i].ring << "\n";
+                            << cloud.points[i].intensity << "\n";
                     }
                 }
             }
-
             break;
 
         default:
