@@ -6,8 +6,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import scipy
 from scipy.spatial import ConvexHull
+from sklearn.linear_model import RANSACRegressor
 import dash
 
 # Constants
@@ -42,11 +42,16 @@ def process_data_points(df):
     df_no_ceiling = erase_ceiling(df, ceiling_z)
     df_walls = find_walls(df_no_ceiling, ceiling_z)
     
+    #corners = find_corners(df_walls)
+    
+    #return df_no_ceiling, corners
+
     corners_pca = find_corners_eigenvectors(df_walls)
     corners_grad = find_corners_derivate(df_walls)
+    corners_ran = find_corners_ransac(df_walls)
     corners_km = find_corners_kmean(df_walls)
     
-    return df_walls, corners_pca, corners_grad, corners_km
+    return df_walls, corners_pca, corners_grad, corners_ran, corners_km
 
 def find_ceiling(df):
     """
@@ -78,7 +83,7 @@ def find_walls(df, ceiling, margin=0.1):
     """
     lowest_5 = df['z'].quantile(0.05)
     middle = (ceiling - lowest_5) / 2
-    print(f"[Process] Middle: {middle}\n")
+    print(f"[Process] Middle: {middle}")
 
     # Calcul des bornes
     lower = middle * (1 - margin)
@@ -87,6 +92,35 @@ def find_walls(df, ceiling, margin=0.1):
     strip = df[df['z'].between(lower, upper)]
     print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
     return strip
+
+def find_corners(df):
+    """
+    PCA-based corner detection for a rectangular room.
+    """
+    coords = df[['x', 'y']].values
+    center = coords.mean(axis=0)
+    centered = coords - center
+
+    cov = np.cov(centered.T)
+    _, eigenvectors = np.linalg.eigh(cov)
+    
+    # Project onto principal axes
+    aligned = centered @ eigenvectors
+    
+    lo_x, hi_x = np.percentile(aligned[:,0], [1,99])
+    lo_y, hi_y = np.percentile(aligned[:,1], [1,99])
+    
+    aligned_corners = np.array([
+        [lo_x, lo_y],
+        [hi_x, lo_y],
+        [hi_x, hi_y],
+        [lo_x, hi_y]
+    ])
+    
+    world_corners = (aligned_corners @ eigenvectors.T) + center
+    
+    print(f"[PCA] Found 4 corners using principal axes")
+    return world_corners
 
 def find_corners_eigenvectors(df):
     """
@@ -140,7 +174,7 @@ def find_corners_derivate(df, bins=360):
         return g[g <= q].median() if len(g) else np.nan
 
     profile_series = df_polar.groupby('theta_bin', observed=False)['r'].apply(near_median)
-    profile = profile_series.reindex(range(bins)).interpolate(method='linear').fillna(method='bfill').fillna(method='ffill').values
+    profile = profile_series.reindex(range(bins)).interpolate(method='linear').bfill().ffill().values
 
     from scipy.ndimage import gaussian_filter1d
     profile_smooth = gaussian_filter1d(profile, sigma=3)
@@ -169,6 +203,75 @@ def find_corners_derivate(df, bins=360):
 
     print(f"[Derivative] Detected {len(detected_corners)} corners via radial gradient")
     return np.array(detected_corners)
+
+def find_corners_ransac(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_threshold=0.3):
+    """
+    1. Detect wall lines using RANSAC
+    2. Project points onto lines to find endpoints
+    3. Intersect adjacent lines to find physical corners
+    """
+    points = df[['x', 'y']].values
+    walls = []
+    remaining_points = points.copy()
+
+    for _ in range(max_walls):
+        if len(remaining_points) < min_points:
+            break
+
+        if np.var(remaining_points[:,0]) > np.var(remaining_points[:,1]):
+            x, y = remaining_points[:,0:1], remaining_points[:,1]
+            is_vertical = False
+        else:
+            x, y = remaining_points[:,1:2], remaining_points[:,0]
+            is_vertical = True
+
+        ransac = RANSACRegressor(residual_threshold=0.05)
+        try:
+            ransac.fit(x,y)
+        except: break
+
+        inlier_mask = ransac.inlier_mask_
+        if np.sum(inlier_mask) < min_points:
+            break
+
+        m = ransac.estimator_.coef_[0]
+        b = ransac.estimator_.intercept_
+        params = (m, -1, b) if not is_vertical else (1, -m, -b)
+
+        walls.append({'params':params, 'pts':remaining_points[inlier_mask]})
+        remaining_points = remaining_points[~inlier_mask]
+    
+    corners = []
+    for i in range(len(walls)):
+        for j in range(i+1, len(walls)):
+            A1, B1, C1, = walls[i]['params']
+            A2, B2, C2, = walls[j]['params']
+
+            det = A1 * B2 - A2 * B1
+            if abs(det) < 1e-3: continue
+
+            px = (B1 * C2 - B2 * C1) / det
+            py = (A2 * C1 - A1 * C2) / det
+            corner = np.array([px, py])
+
+            dist_to_wall1 = np.min(np.linalg.norm(walls[i]['pts'] - corner, axis=1))
+            dist_to_wall2 = np.min(np.linalg.norm(walls[j]['pts'] - corner, axis=1))
+
+            if dist_to_wall1 < dist_threshold and dist_to_wall2 < dist_threshold:
+                corners.append(corner)
+    
+    final_corners = []
+    for c in corners:
+        is_duplicate = False
+        for existing in final_corners:
+            if np.linalg.norm(c - existing) < corner_threshold:
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            final_corners.append(c)
+
+    print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
+    return np.array(final_corners)
 
 def find_corners_kmean(df, max_itera=300, tol=1e-4):
     X = df[['x', 'y']].values
@@ -212,18 +315,26 @@ def find_corners_kmean(df, max_itera=300, tol=1e-4):
     return world_centroids
 
 # Visualisers
-def create_pc_figure(df, c_pca=None, c_grad=None, c_km=None, draw_max=NBR_POINTS):
+def create_pc_figure(df, c_pca=None, c_grad=None, c_ran=None, c_km=None, draw_max=NBR_POINTS):
     if len(df) > draw_max:
         df = df.sample(n=draw_max)
     
     fig = px.scatter_3d(
         df, x='x', y='y', z='z',
-        color='z',
+        color='intensity',
         color_continuous_scale='Plasma',
-        #range_color=[0, 3],
         opacity=0.5,
         title=f"LiDAR Point Cloud ({len(df):,} pts)"
     )
+
+    zero = np.array([0.0])
+    fig.add_trace(go.Scatter3d(
+        x=zero, y=zero, z=zero,
+        mode='markers+text',
+        marker=dict(size=4, color='black', symbol='circle'),
+        name='Lidar',
+        text=["LiDAR"]
+    ))
 
     z_display = df['z'].mean()
 
@@ -242,17 +353,27 @@ def create_pc_figure(df, c_pca=None, c_grad=None, c_km=None, draw_max=NBR_POINTS
         fig.add_trace(go.Scatter3d(
             x=c_grad[:, 0], y=c_grad[:, 1], z=[z_display] * len(c_grad),
             mode='markers+text',
-            marker=dict(size=6, color='blue', symbol='circle'),
+            marker=dict(size=6, color='blue', symbol='diamond'),
             name='Corners (Gradient)',
             text=["Grad Corner"] * len(c_grad)
         ))
+    
+    # Add Ransac Corners (Green)
+    if c_ran is not None:
+        fig.add_trace(go.Scatter3d(
+            x=c_ran[:, 0], y=c_ran[:, 1], z=[z_display] * len(c_ran),
+            mode='markers+text',
+            marker=dict(size=6, color='green', symbol='diamond'),
+            name='Corners (Ransac)',
+            text=["Ransac Corner"] * len(c_ran)
+        ))
 
-    # Add Me Corners (Green)
+    # Add kmean Corners (Black)
     if c_km is not None:
         fig.add_trace(go.Scatter3d(
             x=c_km[:, 0], y=c_km[:, 1], z=[z_display] * len(c_km),
             mode='markers+text',
-            marker=dict(size=6, color='green', symbol='cross'),
+            marker=dict(size=6, color='black', symbol='cross'),
             name='Corners (Kmean)',
             text=["Kmean Corner"] * len(c_km)
         ))
@@ -298,10 +419,10 @@ if __name__ == "__main__":
     df_imu = load_imu()
 
     # Process data points
-    df_pts, c_pca, c_grad, c_km = process_data_points(df_pts)
+    df_pts, c_pca, c_grad, c_ran, c_km = process_data_points(df_pts)
 
     # Generate Figures
-    fig_pc = create_pc_figure(df_pts, c_pca, c_grad, c_km)
+    fig_pc = create_pc_figure(df_pts, c_pca, c_grad, c_ran, c_km)
     fig_imu = create_imu_figure(df_imu)
 
     # Initialize Dash App

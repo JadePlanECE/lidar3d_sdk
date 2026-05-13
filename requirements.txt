@@ -4,4 +4,5 @@ argparse
 matplotlib
 PlotPy
 scipy
+scikit-learn
 dash
