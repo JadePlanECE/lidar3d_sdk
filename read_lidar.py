@@ -7,21 +7,25 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from scipy.spatial import ConvexHull
 from sklearn.linear_model import RANSACRegressor
 import dash
+import dash_daq as daq
 
 # Constants
-POINTS_CSV = "./data/points_time.csv"
-IMU_CSV = "./data/imu_time.csv"
+#POINTS_CSV = "./data/points_time.csv"
+#IMU_CSV = "./data/imu_time.csv"
+POINTS_CSV = "./data/points.csv"
+IMU_CSV = "./data/imu.csv"
+
 NBR_POINTS = 100000
+TRAIN_HEIGHT = 3.0
 
 # Load data
-def load_points(path=POINTS_CSV, max_pts=None):
+def load_points(path=POINTS_CSV):
     if not os.path.exists(path):
         sys.exit(f"[Error] File not found {path}\n")
     
-    df = pd.read_csv(path, nrows=max_pts)
+    df = pd.read_csv(path)
     print(f"[Points] Loaded {len(df):,} rows from {path}")
     return df
 
@@ -35,15 +39,19 @@ def load_imu(path=IMU_CSV):
 
 # Process
 def process_data_points(df):
+    df = df.iloc[:-1] #drop the last line (always unfinished)
     ceiling_z = find_ceiling(df)
     df_no_ceiling = erase_ceiling(df, ceiling_z)
-    df_walls = find_walls(df_no_ceiling, ceiling_z)
+    return df_no_ceiling, ceiling_z
+
+def corners(df, z):
+    df_walls = find_walls(df, z)
 
     if df_walls.empty:
         print("[Error] No wall points found. Adjust your Z-thresholds.")
-        return df_no_ceiling, None
+        return None
 
-    return df_no_ceiling, find_corners(df_walls)
+    return find_corners(df_walls)
 
 def find_ceiling(df):
     """
@@ -74,7 +82,7 @@ def erase_ceiling(df, z, threshold=0.4):
     
     return df[df['z'] < (z - threshold)].copy()
 
-def find_walls(df, ceiling, margin=0.1):
+def find_walls(df, ceiling, margin=0.2):
     """
     Classifies points as walls if they are in the middle between :
     - the ceiling (erased)
@@ -87,17 +95,16 @@ def find_walls(df, ceiling, margin=0.1):
     
     lowest_5 = df['z'].quantile(0.05)
     middle = (ceiling - lowest_5) / 2
-    print(f"[Process] Middle: {middle}")
 
     # Calcul des bornes
     lower = middle * (1 - margin)
     upper = middle * (1 + margin)
 
     strip = df[df['z'].between(lower, upper)]
-    print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
+    #print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
     return strip
 
-def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_threshold=0.3):
+def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_threshold=0.5):
     """
     1. Detect wall lines using RANSAC
     2. Project points onto lines to find endpoints
@@ -163,7 +170,7 @@ def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_th
         if not is_duplicate:
             final_corners.append(c)
 
-    print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
+    #print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
     return np.array(final_corners)
 
 # Visualisers
@@ -210,7 +217,7 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     )
     return fig
 
-def create_imu_figure(df, min_x, min_y, max_x, max_y):
+def create_imu_figure(df):
     # Create subplots: one for Accel, one for Quaternions
     fig = make_subplots(rows=2, cols=1, 
                         shared_xaxes=True, 
@@ -236,47 +243,100 @@ def create_imu_figure(df, min_x, min_y, max_x, max_y):
     fig.update_xaxes(title_text=x_label, row=2, col=1)
     return fig
 
+def update_text_imu(df, time):
+    second_df = df[
+        (df['time_sec'] >= time) &
+        (df['time_sec'] < time + 1)
+    ]
+
+    if second_df.empty:
+        return "No IMU data"
+
+    # Sum accelerations
+    acc_x_sum = second_df['acc_x'].sum()
+    acc_y_sum = second_df['acc_y'].sum()
+    acc_z_sum = second_df['acc_z'].sum()
+
+    # Sum rotations/quaternions
+    qw_sum = second_df['qw'].sum()
+    qx_sum = second_df['qx'].sum()
+    qy_sum = second_df['qy'].sum()
+    qz_sum = second_df['qz'].sum()
+
+    return [
+        f"Acc x: {acc_x_sum:.3f}", dash.html.Br(),
+        f"Acc y: {acc_y_sum:.3f}", dash.html.Br(),
+        f"Acc z: {acc_z_sum:.3f}", dash.html.Br(),
+        dash.html.Br(),
+        f"Rot w: {qw_sum:.3f}", dash.html.Br(),
+        f"Rot x: {qx_sum:.3f}", dash.html.Br(),
+        f"Rot y: {qy_sum:.3f}", dash.html.Br(),
+        f"Rot z: {qz_sum:.3f}"
+    ]
+
 # Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualise LiDAR and IMU CSV data via Dash")
-    parser.add_argument("--max-pts", type=int, default=None, help="Max point rows to load")
+    parser.add_argument("--max-pts", type=int, default=NBR_POINTS, help="Max point rows to load")
     parser.add_argument("--port", type=int, default=8050, help="Visualisation backend for point cloud (default: open3d)")
     args = parser.parse_args()
 
-    df_pts = load_points(max_pts=args.max_pts)
+    df_pts = load_points()
     df_imu = load_imu()
 
     # Process data points
-    df_pts, c = process_data_points(df_pts)
+    #df_pts['time'] = pd.to_datetime(df_pts['time'], unit='s')
+    df_pts, z = process_data_points(df_pts)
 
     # Pre-calculate time range
     min_time = df_pts['time'].min()
+    max_time = df_pts['time'].max()
+    second_max_time = df_pts['time'].drop_duplicates().nlargest(2).iloc[-1]
     min_x = df_pts['x'].min()
     min_y = df_pts['y'].min()
-    max_time = df_pts['time'].max()
     max_x = df_pts['x'].max()
     max_y = df_pts['y'].max()
 
     # Initialize Dash App
     app = dash.Dash(__name__)
 
-    fig_imu = create_imu_figure(df_imu, min_x, min_y, max_x, max_y)
+    fig_imu = create_imu_figure(df_imu)
 
     app.layout = dash.html.Div(style={'backgroundColor': 'white', 'color': 'black', 'padding': '20px'}, children=[
         dash.html.H1("LiDAR & IMU", style={'textAlign': 'center'}),
         
         # --- Control Panel ---
-        dash.html.Div(
+        dash.html.Div([
             dash.dcc.Slider(
                 id='time-slider',
                 min=min_time,
-                max=max_time,
+                max=second_max_time,
                 value=min_time,
                 marks=None,
-                step=1,
-                tooltip={"placement": "bottom", "always_visible": True},
+                step=None
             ),
-            style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '10px', 'marginBottom': '20px'}
+            daq.ToggleSwitch(
+                id='switch',
+                label="All data points",
+                value=False
+            ),
+            dash.html.P(
+                id='lidar-height',
+                children=f"Lidar height: {TRAIN_HEIGHT-z}"
+            ),
+            dash.html.P(
+                id='imu-info',
+                children=[
+                    "Acc x: ?", dash.html.Br(),
+                    "Acc y: ?", dash.html.Br(),
+                    "Acc z: ?", dash.html.Br(),
+                    "Rot w: ?", dash.html.Br(),
+                    "Rot x: ?", dash.html.Br(),
+                    "Rot y: ?", dash.html.Br(),
+                    "Rot z: ?"
+                ]
+            )
+            ],style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '10px', 'marginBottom': '20px'}
         ),
 
         # --- Visuals ---
@@ -292,15 +352,21 @@ if __name__ == "__main__":
     ])
 
     @dash.callback(
+        dash.Output('imu-info', 'children'),
         dash.Output('fig_pts', 'figure'),
-        dash.Input('time-slider', 'value')
+        dash.Input('time-slider', 'value'),
+        dash.Input('switch', 'value')
     )
-    def update_figures(selected_time):
-        filtered_df_pts = df_pts[df_pts['time'].between(selected_time - 0.5, selected_time + 0.5)].copy()
-
-        fig_pts = create_pc_figure(filtered_df_pts, c, min_x, min_y, max_x, max_y)
-
-        return fig_pts
+    def update_figures(selected_time, no_time):
+        if no_time:
+            c = corners(df_pts, z)
+            fig_pts = create_pc_figure(df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
+            return "", fig_pts
+        else:
+            filtered_df_pts = df_pts[df_pts['time'].between(selected_time - 1, selected_time + 1)].copy()
+            c = corners(df_pts, z)
+            fig_pts = create_pc_figure(filtered_df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
+            return update_text_imu(df_imu, selected_time), fig_pts
 
     # Run server on 0.0.0.0 to make it accessible on the local network
     print(f"\n--- Server starting on port {args.port} ---")

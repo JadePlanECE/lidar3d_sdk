@@ -6,3 +6,4 @@ PlotPy
 scipy
 scikit-learn
 dash
+dash-daq
