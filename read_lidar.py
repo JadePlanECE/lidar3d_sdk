@@ -8,6 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.linear_model import RANSACRegressor
+from scipy.spatial.transform import Rotation as R
 import dash
 import dash_daq as daq
 
@@ -21,30 +22,22 @@ NBR_POINTS = 100000
 TRAIN_HEIGHT = 3.0
 
 # Load data
-def load_points(path=POINTS_CSV):
+def load_csv(path):
     if not os.path.exists(path):
         sys.exit(f"[Error] File not found {path}\n")
     
     df = pd.read_csv(path)
-    print(f"[Points] Loaded {len(df):,} rows from {path}")
-    return df
-
-def load_imu(path=IMU_CSV):
-    if not os.path.exists(path):
-        sys.exit(f"[Error] File not found {path}\n")
-    
-    df = pd.read_csv(path)
-    print(f"[IMU] Loaded {len(df):,} rows from {path}")
+    print(f"[Load CSV] Loaded {len(df):,} rows from {path}")
+    df = df.iloc[:-1] #drop the last line (always unfinished)
     return df
 
 # Process
-def process_data_points(df):
-    df = df.iloc[:-1] #drop the last line (always unfinished)
+def ceiling_process(df):
     ceiling_z = find_ceiling(df)
     df_no_ceiling = erase_ceiling(df, ceiling_z)
     return df_no_ceiling, ceiling_z
 
-def corners(df, z):
+def corners_process(df, z):
     df_walls = find_walls(df, z)
 
     if df_walls.empty:
@@ -169,6 +162,9 @@ def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_th
                 break
         if not is_duplicate:
             final_corners.append(c)
+    
+    if len(final_corners) == 0:
+        return None
 
     #print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
     return np.array(final_corners)
@@ -218,28 +214,55 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     return fig
 
 def create_imu_figure(df):
-    # Create subplots: one for Accel, one for Quaternions
-    fig = make_subplots(rows=2, cols=1, 
-                        shared_xaxes=True, 
-                        vertical_spacing=0.1,
-                        subplot_titles=("Linear Acceleration (m/s²)", "Quaternions"))
+    df = df.copy()
 
+    # Time axis
     if 'time_sec' in df.columns:
         t = df["time_sec"] + (df["time_nsec"] / 1e9)
         x_label = "Time (seconds)"
     else:
         t = df["seq"]
         x_label = "Sequence Number"
+    
+    # Gravity compensation
+    df["acc_z_corrected"] = df["acc_z"] - 9.81
+
+    # Quaternion -> Euler conversion
+    quats = df[["qx", "qy", "qz", "qw"]].to_numpy()
+
+    quat_norms = np.linalg.norm(quats, axis=1)
+    valid_mask = quat_norms > 1e-8
+
+    # Keep only valid rows
+    df_valid = df[valid_mask].copy()
+    quats_valid = quats[valid_mask]
+
+    rotations = R.from_quat(quats_valid)
+    eulers = rotations.as_euler('xyz', degrees=True)
+
+    df_valid["roll"] = eulers[:, 0]
+    df_valid["pitch"] = eulers[:, 1]
+    df_valid["yaw"] = eulers[:, 2]
+
+    df["roll"] = eulers[:, 0]
+    df["pitch"] = eulers[:, 1]
+    df["yaw"] = eulers[:, 2]
+
+    # Create subplots
+    fig = make_subplots(rows=2, cols=1, 
+                        shared_xaxes=True, 
+                        vertical_spacing=0.1,
+                        subplot_titles=("Linear Acceleration (m/s²)", "Euler Angles (degrees)"))
 
     # Accelerometer traces
-    for col in ["acc_x", "acc_y", "acc_z"]:
+    for col in ["acc_x", "acc_y", "acc_z_corrected"]:
         fig.add_trace(go.Scatter(x=t, y=df[col], name=col, mode='lines'), row=1, col=1)
 
     # Quaternion traces
-    for col in ["qw", "qx", "qy", "qz"]:
+    for col in ["roll", "pitch", "yaw"]:
         fig.add_trace(go.Scatter(x=t, y=df[col], name=col, mode='lines'), row=2, col=1)
 
-    fig.update_layout(height=600, title_text="IMU Sensor Data", showlegend=True)
+    fig.update_layout(height=700, title_text="IMU Sensor Data", showlegend=True)
     fig.update_xaxes(title_text=x_label, row=2, col=1)
     return fig
 
@@ -253,25 +276,29 @@ def update_text_imu(df, time):
         return "No IMU data"
 
     # Sum accelerations
-    acc_x_sum = second_df['acc_x'].sum()
-    acc_y_sum = second_df['acc_y'].sum()
-    acc_z_sum = second_df['acc_z'].sum()
+    acc_x_sum = second_df['acc_x'].mean()
+    acc_y_sum = second_df['acc_y'].mean()
+    acc_z_sum = second_df['acc_z'].mean() - 9.81 # gravity
 
     # Sum rotations/quaternions
-    qw_sum = second_df['qw'].sum()
-    qx_sum = second_df['qx'].sum()
-    qy_sum = second_df['qy'].sum()
-    qz_sum = second_df['qz'].sum()
+    qw_sum = second_df['qw'].mean()
+    qx_sum = second_df['qx'].mean()
+    qy_sum = second_df['qy'].mean()
+    qz_sum = second_df['qz'].mean()
+
+    r = R.from_quat([qx_sum, qy_sum, qz_sum, qw_sum])
+    r_x, r_y, r_z = r.as_euler('xyz', degrees=True)
 
     return [
-        f"Acc x: {acc_x_sum:.3f}", dash.html.Br(),
-        f"Acc y: {acc_y_sum:.3f}", dash.html.Br(),
-        f"Acc z: {acc_z_sum:.3f}", dash.html.Br(),
+        f"LiDAR height: {TRAIN_HEIGHT-z:.2f} m", dash.html.Br(),
         dash.html.Br(),
-        f"Rot w: {qw_sum:.3f}", dash.html.Br(),
-        f"Rot x: {qx_sum:.3f}", dash.html.Br(),
-        f"Rot y: {qy_sum:.3f}", dash.html.Br(),
-        f"Rot z: {qz_sum:.3f}"
+        f"Acc x: {acc_x_sum:.3f} m/s", dash.html.Br(),
+        f"Acc y: {acc_y_sum:.3f} m/s", dash.html.Br(),
+        f"Acc z: {acc_z_sum:.3f} m/s", dash.html.Br(),
+        dash.html.Br(),
+        f"Rot x: {r_x:.3f} degrees", dash.html.Br(),
+        f"Rot y: {r_y:.3f} degrees", dash.html.Br(),
+        f"Rot z: {r_z:.3f} degrees"
     ]
 
 # Main
@@ -281,61 +308,79 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8050, help="Visualisation backend for point cloud (default: open3d)")
     args = parser.parse_args()
 
-    df_pts = load_points()
-    df_imu = load_imu()
+    df_pts = load_csv(POINTS_CSV)
+    df_imu = load_csv(IMU_CSV)
 
     # Process data points
     #df_pts['time'] = pd.to_datetime(df_pts['time'], unit='s')
-    df_pts, z = process_data_points(df_pts)
+    df_pts_process, z = ceiling_process(df_pts)
 
     # Pre-calculate time range
-    min_time = df_pts['time'].min()
-    max_time = df_pts['time'].max()
-    second_max_time = df_pts['time'].drop_duplicates().nlargest(2).iloc[-1]
-    min_x = df_pts['x'].min()
-    min_y = df_pts['y'].min()
-    max_x = df_pts['x'].max()
-    max_y = df_pts['y'].max()
+    min_time = df_pts_process['time'].min()
+    max_time = df_pts_process['time'].max()
+    second_max_time = df_pts_process['time'].drop_duplicates().nlargest(2).iloc[-1]
+    min_x = df_pts_process['x'].min()
+    min_y = df_pts_process['y'].min()
+    max_x = df_pts_process['x'].max()
+    max_y = df_pts_process['y'].max()
 
     # Initialize Dash App
     app = dash.Dash(__name__)
 
     fig_imu = create_imu_figure(df_imu)
 
-    app.layout = dash.html.Div(style={'backgroundColor': 'white', 'color': 'black', 'padding': '20px'}, children=[
-        dash.html.H1("LiDAR & IMU", style={'textAlign': 'center'}),
-        
-        # --- Control Panel ---
-        dash.html.Div([
-            dash.dcc.Slider(
-                id='time-slider',
-                min=min_time,
-                max=second_max_time,
-                value=min_time,
-                marks=None,
-                step=None
-            ),
-            daq.ToggleSwitch(
-                id='switch',
-                label="All data points",
-                value=False
-            ),
-            dash.html.P(
-                id='lidar-height',
-                children=f"Lidar height: {TRAIN_HEIGHT-z}"
-            ),
-            dash.html.P(
-                id='imu-info',
-                children=[
-                    "Acc x: ?", dash.html.Br(),
-                    "Acc y: ?", dash.html.Br(),
-                    "Acc z: ?", dash.html.Br(),
-                    "Rot w: ?", dash.html.Br(),
-                    "Rot x: ?", dash.html.Br(),
-                    "Rot y: ?", dash.html.Br(),
-                    "Rot z: ?"
-                ]
-            )
+    app.layout = dash.html.Div(
+        style={
+            'backgroundColor': '#f5f7fb',
+            'color': 'black',
+            'padding': '30px',
+            'minHeight': '100vh',
+            'fontFamily': 'Inter, sans-serif'
+        }, children=[
+            dash.html.H1("LiDAR & IMU", style={'textAlign': 'center', 'color': '#1f2937'}),
+            
+            # --- Control Panel ---
+            dash.html.Div([
+                dash.html.Div(
+                    "Show all data points",
+                    style={'color': '#374151'}
+                ),
+                daq.ToggleSwitch(
+                    id='switch',
+                    value=False,
+                    color='#2563eb',
+                ),
+                dash.html.Div(
+                    [dash.html.Br(), "Timeline"],
+                    style={'color': '#374151'}
+                ),
+                dash.dcc.Slider(
+                    id='time-slider',
+                    min=min_time,
+                    max=second_max_time,
+                    value=min_time,
+                    marks=None,
+                    step=None
+                ),
+                dash.html.P(
+                    id='imu-info',
+                    children=[
+                        f"Height: {TRAIN_HEIGHT-z:.2f} m", dash.html.Br(),
+                        dash.html.Br(),
+                        "Acc x: .. m/s", dash.html.Br(),
+                        "Acc y: .. m/s", dash.html.Br(),
+                        "Acc z: .. m/s", dash.html.Br(),
+                        dash.html.Br(),
+                        "Rot x: .. degrees", dash.html.Br(),
+                        "Rot y: .. degrees", dash.html.Br(),
+                        "Rot z: .. degrees"
+                    ],
+                    style={
+                        'lineHeight': '1.8',
+                        'fontSize': '14px',
+                        'color': '#4b5563'
+                    }
+                )
             ],style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '10px', 'marginBottom': '20px'}
         ),
 
@@ -359,12 +404,18 @@ if __name__ == "__main__":
     )
     def update_figures(selected_time, no_time):
         if no_time:
-            c = corners(df_pts, z)
-            fig_pts = create_pc_figure(df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
+            df_pts_process, z = ceiling_process(df_pts)
+            c = corners_process(df_pts_process, z)
+            fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
             return "", fig_pts
         else:
-            filtered_df_pts = df_pts[df_pts['time'].between(selected_time - 1, selected_time + 1)].copy()
-            c = corners(df_pts, z)
+            df_pts_process, z = ceiling_process(df_pts)
+            if (selected_time == min_time):
+                print(f"TIME IS ZERO: {selected_time} = {min_time}")
+                filtered_df_pts = df_pts_process[df_pts_process['time'].between(selected_time, selected_time + 1)].copy()
+            else:
+                filtered_df_pts = df_pts_process[df_pts_process['time'].between(selected_time - 1, selected_time + 1)].copy()
+            c = corners_process(filtered_df_pts, z)
             fig_pts = create_pc_figure(filtered_df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
             return update_text_imu(df_imu, selected_time), fig_pts
 
