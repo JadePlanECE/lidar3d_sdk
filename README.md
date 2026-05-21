@@ -1,12 +1,12 @@
 # Unitree 4D LiDAR L2
 
-The LiDAR launch code is based on the SDK.
+The LiDAR launch code is based on the SDK [link here](https://github.com/unitreerobotics/unilidar_sdk2/tree/main/unitree_lidar_sdk).
 
 To establish the UDP connection (via Ethernet cable) between the LiDAR and the computer or Jetson you are using, please read the configuration instructions. You will then be provided with instructions on how to launch it.
 
 After that, you can create a Python virtual environment to begin data processing.
 
-[explication of lidar connection to be sure it will not broke]
+Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adapter to power on the LiDAR.
 
 ## Configuration of LiDAR
 
