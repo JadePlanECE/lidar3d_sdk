@@ -13,13 +13,20 @@ import dash
 import dash_daq as daq
 
 # Constants
-#POINTS_CSV = "./data/points_time.csv"
-#IMU_CSV = "./data/imu_time.csv"
-POINTS_CSV = "./data/points.csv"
-IMU_CSV = "./data/imu.csv"
-
-NBR_POINTS = 100000
+NBR_POINTS = 200000
 TRAIN_HEIGHT = 3.0
+DELTA = 0.5
+
+# Paths
+#FILES = ".csv"
+#FILES = "_time.csv"
+#FILES = "_huge.csv"
+#FILES = "_20260519_140101.csv"
+#FILES = "_20260519_165800.csv"
+FILES = "_20260520_174429.csv"
+
+POINTS_CSV = "./data/points" + FILES
+IMU_CSV = "./data/imu" + FILES
 
 # Load data
 def load_csv(path):
@@ -41,7 +48,7 @@ def corners_process(df, z):
     df_walls = find_walls(df, z)
 
     if df_walls.empty:
-        print("[Error] No wall points found. Adjust your Z-thresholds.")
+        print("[Error] No wall points found.")
         return None
 
     return find_corners(df_walls)
@@ -62,7 +69,7 @@ def find_ceiling(df):
     z_groups = df.groupby(df['z'].round(2))['weight'].sum()
     ceiling_z = z_groups.idxmax()
     
-    print(f"[Process] Detected ceiling at Z = {ceiling_z:.2f}")
+    #print(f"[Process] Detected ceiling at Z = {ceiling_z:.2f}")
     return ceiling_z
 
 def erase_ceiling(df, z, threshold=0.4):
@@ -171,6 +178,23 @@ def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_th
 
 # Visualisers
 def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
+    if not df.empty:
+        # calculate x and y closest to the lidar
+        distances = np.hypot(df["x"].values, df["y"].values)
+        i = distances.argmin()
+
+        d = distances[i]
+        x = df["x"].values[i]
+        y = df["y"].values[i]
+
+        x = np.array([x])
+        y = np.array([y])
+    else:
+        d = 0
+        x = np.array([0.0])
+        y = np.array([0.0])
+
+    # check number of points
     if len(df) > draw_max:
         df = df.sample(n=draw_max)
     
@@ -191,6 +215,14 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
         marker=dict(size=4, color='black', symbol='circle'),
         name='Lidar',
         text=["LiDAR"]
+    ))
+
+    fig.add_trace(go.Scatter3d(
+        x=x, y=y, z=zero,
+        mode='markers+text',
+        marker=dict(size=6, color='black', symbol='cross'),
+        name='closest-point',
+        text=[f"Dist={round(d,4)}"]
     ))
 
     z_display = df['z'].mean()
@@ -266,10 +298,10 @@ def create_imu_figure(df):
     fig.update_xaxes(title_text=x_label, row=2, col=1)
     return fig
 
-def update_text_imu(df, time):
+def update_text_imu(df, time, z):
     second_df = df[
         (df['time_sec'] >= time) &
-        (df['time_sec'] < time + 1)
+        (df['time_sec'] < time + DELTA)
     ]
 
     if second_df.empty:
@@ -409,15 +441,15 @@ if __name__ == "__main__":
             fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
             return "", fig_pts
         else:
-            df_pts_process, z = ceiling_process(df_pts)
             if (selected_time == min_time):
                 print(f"TIME IS ZERO: {selected_time} = {min_time}")
-                filtered_df_pts = df_pts_process[df_pts_process['time'].between(selected_time, selected_time + 1)].copy()
+                filtered_df_pts = df_pts[df_pts['time'].between(selected_time, selected_time + DELTA)].copy()
             else:
-                filtered_df_pts = df_pts_process[df_pts_process['time'].between(selected_time - 1, selected_time + 1)].copy()
-            c = corners_process(filtered_df_pts, z)
-            fig_pts = create_pc_figure(filtered_df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
-            return update_text_imu(df_imu, selected_time), fig_pts
+                filtered_df_pts = df_pts[df_pts['time'].between(selected_time - DELTA, selected_time + DELTA)].copy()
+            df_pts_process, z = ceiling_process(filtered_df_pts)
+            c = corners_process(df_pts_process, z)
+            fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
+            return update_text_imu(df_imu, selected_time, z), fig_pts
 
     # Run server on 0.0.0.0 to make it accessible on the local network
     print(f"\n--- Server starting on port {args.port} ---")
