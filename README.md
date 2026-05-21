@@ -8,6 +8,11 @@ After that, you can create a Python virtual environment to begin data processing
 
 Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adapter to power on the LiDAR.
 
+The files I work on most often:
+- read_lidar.py
+- include/example.h
+- examples/example_lidar_udp.cpp
+
 ## Configuration of LiDAR
 
 To configure the LiDAR, you'll need to connect it to your computer via Ethernet.
