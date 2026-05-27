@@ -9,13 +9,14 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.linear_model import RANSACRegressor
 from scipy.spatial.transform import Rotation as R
+from skimage.transform import hough_line, hough_line_peaks
 import dash
 import dash_daq as daq
 
 # Constants
 NBR_POINTS = 200000
 TRAIN_HEIGHT = 3.0
-DELTA = 0.5
+DELTA = 0.1
 DARK_MODE = True
 
 THEMES = {
@@ -69,7 +70,61 @@ def load_csv(path):
     df = df.iloc[:-1] #drop the last line (always unfinished)
     return df
 
+def create_roll_pitch_yaw(df):
+    df = df.copy()
+    df["acc_z_corrected"] = df["acc_z"] - 9.81
+
+    quats = df[["qx", "qy", "qz", "qw"]].to_numpy()
+    quat_norms = np.linalg.norm(quats, axis=1)
+    valid_mask = quat_norms > 1e-8
+
+    eulers = np.zeros((len(df), 3))
+    rotations = R.from_quat(quats[valid_mask])
+    eulers[valid_mask] = rotations.as_euler('xyz', degrees=True)
+
+    df["roll"]  = eulers[:, 0]
+    df["pitch"] = eulers[:, 1]
+    df["yaw"]   = eulers[:, 2]
+
+    return df
+
 # Process
+def deskew_points(df_window, df_imu):
+    """
+    Vectorized IMU deskew — compensates platform motion within the time window.
+    Reference pose = start of window (t0).
+    """
+    if df_window.empty or df_imu.empty:
+        return df_window
+
+    t0 = df_window['time'].min()
+    dt = (df_window['time'] - t0).values  # shape (N,)
+
+    # Build a unified time axis for IMU (seconds)
+    imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values / 1e9
+
+    # Interpolate yaw rate and accelerations onto each LiDAR point's timestamp
+    # (use cumulative yaw, not yaw itself, for angular displacement)
+    gyro_z  = np.interp(df_window['time'].values, imu_t, df_imu['yaw'].values)
+    acc_x   = np.interp(df_window['time'].values, imu_t, df_imu['acc_x'].values)
+    acc_y   = np.interp(df_window['time'].values, imu_t, df_imu['acc_y'].values)
+
+    dtheta = gyro_z * dt
+    dx     = 0.5 * acc_x * dt**2
+    dy     = 0.5 * acc_y * dt**2
+
+    cos_t = np.cos(-dtheta)
+    sin_t = np.sin(-dtheta)
+
+    x = df_window['x'].values
+    y = df_window['y'].values
+
+    df_out = df_window.copy()
+    df_out['x'] = cos_t * (x - dx) - sin_t * (y - dy)
+    df_out['y'] = sin_t * (x - dx) + cos_t * (y - dy)
+
+    return df_out
+
 def ceiling_process(df):
     ceiling_z = find_ceiling(df)
     df_no_ceiling = erase_ceiling(df, ceiling_z)
@@ -82,7 +137,7 @@ def corners_process(df, z):
         print("[Error] No wall points found.")
         return None
 
-    return find_corners(df_walls)
+    return find_corners_hough(df_walls) #find_corners(df_walls)
 
 def find_ceiling(df):
     """
@@ -207,6 +262,66 @@ def find_corners(df, max_walls=10, min_points=100, dist_threshold=0.2, corner_th
     #print(f"[RANSAC] Found {len(walls)} walls and {len(final_corners)} valid corners")
     return np.array(final_corners)
 
+def find_corners_hough(df, max_walls=6, min_points=80, corner_threshold=0.5):
+    points = df[['x', 'y']].values
+    if len(points) < min_points:
+        return None
+
+    # Rasterize into a 2D grid
+    res = 0.05  # 5 cm per cell
+    x_min, y_min = points.min(axis=0) - 0.5
+    x_max, y_max = points.max(axis=0) + 0.5
+    
+    W = int((x_max - x_min) / res) + 1
+    H = int((y_max - y_min) / res) + 1
+    grid = np.zeros((H, W), dtype=np.uint8)
+
+    xi = ((points[:, 0] - x_min) / res).astype(int)
+    yi = ((points[:, 1] - y_min) / res).astype(int)
+    xi = np.clip(xi, 0, W - 1)
+    yi = np.clip(yi, 0, H - 1)
+    grid[yi, xi] = 1
+
+    # Hough transform
+    tested_angles = np.linspace(-np.pi / 2, np.pi / 2, 360, endpoint=False)
+    h, theta, d = hough_line(grid, theta=tested_angles)
+    
+    # Extract dominant lines
+    _, angles, dists = hough_line_peaks(h, theta, d, num_peaks=max_walls, min_distance=20, min_angle=10)
+
+    # Convert lines back to (A, B, C) form: x*cos(t) + y*sin(t) = d
+    walls_params = []
+    for angle, dist in zip(angles, dists):
+        # Real-world dist (account for grid offset)
+        dist_rw = dist * res
+        A = np.cos(angle)
+        B = np.sin(angle)
+        C = -(dist_rw + A * x_min + B * y_min)
+        walls_params.append((A, B, C))
+
+    # Intersect pairs → corners (same logic as your current code)
+    corners = []
+    for i in range(len(walls_params)):
+        for j in range(i + 1, len(walls_params)):
+            A1, B1, C1 = walls_params[i]
+            A2, B2, C2 = walls_params[j]
+            det = A1 * B2 - A2 * B1
+            if abs(det) < 1e-3:
+                continue
+            px = (B1 * C2 - B2 * C1) / det
+            py = (A2 * C1 - A1 * C2) / det
+            # Check corner is within point cloud bounds
+            if x_min <= px <= x_max and y_min <= py <= y_max:
+                corners.append(np.array([px, py]))
+
+    # Deduplicate
+    final = []
+    for c in corners:
+        if all(np.linalg.norm(c - e) >= corner_threshold for e in final):
+            final.append(c)
+
+    return np.array(final) if final else None
+
 # Visualisers
 def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     if not df.empty:
@@ -259,14 +374,14 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
 
     z_display = df['z'].mean()
 
-    # Add Ransac Corners (Green)
+    # Add Corners
     if c is not None:
         fig.add_trace(go.Scatter3d(
             x=c[:, 0], y=c[:, 1], z=[z_display] * len(c),
             mode='markers+text',
             marker=dict(size=6, color=COLOR["marker_corners"], symbol='diamond'),
-            name='Corners (Ransac)',
-            text=["Ransac Corner"] * len(c)
+            name='Corners',
+            text=["Corner"] * len(c)
         ))
 
     fig.update_traces(marker=dict(size=1.5), selector=dict(type='scatter3d', mode='markers'))
@@ -281,8 +396,6 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     return fig
 
 def create_imu_figure(df):
-    df = df.copy()
-
     # Time axis
     if 'time_sec' in df.columns:
         t = df["time_sec"] + (df["time_nsec"] / 1e9)
@@ -290,30 +403,6 @@ def create_imu_figure(df):
     else:
         t = df["seq"]
         x_label = "Sequence Number"
-    
-    # Gravity compensation
-    df["acc_z_corrected"] = df["acc_z"] - 9.81
-
-    # Quaternion -> Euler conversion
-    quats = df[["qx", "qy", "qz", "qw"]].to_numpy()
-
-    quat_norms = np.linalg.norm(quats, axis=1)
-    valid_mask = quat_norms > 1e-8
-
-    # Keep only valid rows
-    df_valid = df[valid_mask].copy()
-    quats_valid = quats[valid_mask]
-
-    rotations = R.from_quat(quats_valid)
-    eulers = rotations.as_euler('xyz', degrees=True)
-
-    df_valid["roll"] = eulers[:, 0]
-    df_valid["pitch"] = eulers[:, 1]
-    df_valid["yaw"] = eulers[:, 2]
-
-    df["roll"] = eulers[:, 0]
-    df["pitch"] = eulers[:, 1]
-    df["yaw"] = eulers[:, 2]
 
     # Create subplots
     fig = make_subplots(rows=2, cols=1, 
@@ -387,13 +476,12 @@ if __name__ == "__main__":
     df_pts = load_csv(POINTS_CSV)
     df_imu = load_csv(IMU_CSV)
 
+    df_imu = create_roll_pitch_yaw(df_imu)
+
     # Process data points
-    #df_pts['time'] = pd.to_datetime(df_pts['time'], unit='s')
     df_pts_process, z = ceiling_process(df_pts)
 
     # Pre-calculate time range
-    #min_time = df_pts_process['time'].min()
-    #max_time = df_pts_process['time'].max()
     second_min_time = df_pts_process['time'].drop_duplicates().nsmallest(2).iloc[-1]
     second_max_time = df_pts_process['time'].drop_duplicates().nlargest(2).iloc[-1]
     min_x = df_pts_process['x'].min()
@@ -507,7 +595,8 @@ if __name__ == "__main__":
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time, selected_time + DELTA)].copy()
             else:
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time - DELTA, selected_time + DELTA)].copy()
-            df_pts_process, z = ceiling_process(filtered_df_pts)
+            df_pts_deskew = deskew_points(filtered_df_pts, df_imu)
+            df_pts_process, z = ceiling_process(df_pts_deskew)
             c = corners_process(df_pts_process, z)
             fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
             return update_text_imu(df_imu, selected_time, z), fig_pts
