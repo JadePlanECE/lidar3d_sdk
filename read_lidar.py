@@ -16,14 +16,45 @@ import dash_daq as daq
 NBR_POINTS = 200000
 TRAIN_HEIGHT = 3.0
 DELTA = 0.5
+DARK_MODE = True
+
+THEMES = {
+    "light": {
+        "bg_app": "#f5f7fb",
+        "bg_card": "white",
+        "text_main": "#1f2937",
+        "text_sub": "#4b5563",
+        "switch": "#6f91da",
+        "plotly_template": "plotly_white",
+        "grid_color": "#e5e7eb",
+        "border": "1px solid #e5e7eb",
+        "marker_lidar": "black",
+        "marker_corners": "green",
+        "marker_dist": "black"
+    },
+    "dark": {
+        "bg_app": "#111827",
+        "bg_card": "#1f2937",
+        "text_main": "#f9fafb",
+        "text_sub": "#d1d5db",
+        "switch": "#02153f",
+        "plotly_template": "plotly_dark",
+        "grid_color": "#374151",
+        "border": "1px solid #374151",
+        "marker_lidar": "#38bdf8",
+        "marker_corners": "#036B62",
+        "marker_dist": "white"
+    }
+}
+
+COLOR = THEMES["dark"] if DARK_MODE else THEMES["light"]
 
 # Paths
-#FILES = ".csv"
+FILES = ".csv"
 #FILES = "_time.csv"
 #FILES = "_huge.csv"
-#FILES = "_20260519_140101.csv"
-#FILES = "_20260519_165800.csv"
-FILES = "_20260520_174429.csv"
+#FILES = "_interesting.csv"
+#FILES = "_test.csv"
 
 POINTS_CSV = "./data/points" + FILES
 IMU_CSV = "./data/imu" + FILES
@@ -205,14 +236,15 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
         range_x=[min_x - 1, max_x + 1],
         range_y=[min_y - 1, max_y + 1],
         opacity=0.4,
-        title=f"LiDAR Point Cloud ({len(df):,} pts)"
+        title=f"LiDAR Point Cloud ({len(df):,} pts)",
+        template=COLOR["plotly_template"]
     )
 
     zero = np.array([0.0])
     fig.add_trace(go.Scatter3d(
         x=zero, y=zero, z=zero,
         mode='markers+text',
-        marker=dict(size=4, color='black', symbol='circle'),
+        marker=dict(size=4, color=COLOR["marker_lidar"], symbol='circle'),
         name='Lidar',
         text=["LiDAR"]
     ))
@@ -220,7 +252,7 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     fig.add_trace(go.Scatter3d(
         x=x, y=y, z=zero,
         mode='markers+text',
-        marker=dict(size=6, color='black', symbol='cross'),
+        marker=dict(size=6, color=COLOR["marker_dist"], symbol='cross'),
         name='closest-point',
         text=[f"Dist={round(d,4)}"]
     ))
@@ -232,7 +264,7 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
         fig.add_trace(go.Scatter3d(
             x=c[:, 0], y=c[:, 1], z=[z_display] * len(c),
             mode='markers+text',
-            marker=dict(size=6, color='green', symbol='diamond'),
+            marker=dict(size=6, color=COLOR["marker_corners"], symbol='diamond'),
             name='Corners (Ransac)',
             text=["Ransac Corner"] * len(c)
         ))
@@ -241,7 +273,10 @@ def create_pc_figure(df, c, min_x, min_y, max_x, max_y, draw_max=NBR_POINTS):
     fig.update_layout(
         scene_aspectmode='data', 
         margin=dict(l=0, r=0, b=0, t=40),
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+        paper_bgcolor=COLOR["bg_card"],
+        plot_bgcolor=COLOR["bg_card"],
+        font=dict(color=COLOR["text_main"])
     )
     return fig
 
@@ -294,8 +329,17 @@ def create_imu_figure(df):
     for col in ["roll", "pitch", "yaw"]:
         fig.add_trace(go.Scatter(x=t, y=df[col], name=col, mode='lines'), row=2, col=1)
 
-    fig.update_layout(height=700, title_text="IMU Sensor Data", showlegend=True)
-    fig.update_xaxes(title_text=x_label, row=2, col=1)
+    fig.update_layout(
+        height=700,
+        title_text="IMU Sensor Data",
+        showlegend=True,
+        template=COLOR["plotly_template"],
+        paper_bgcolor=COLOR["bg_card"],
+        plot_bgcolor=COLOR["bg_card"],
+        font=dict(color=COLOR["text_main"])
+    )
+    fig.update_xaxes(title_text=x_label, row=2, col=1, gridcolor=COLOR["grid_color"])
+    fig.update_yaxes(gridcolor=COLOR["grid_color"])
     return fig
 
 def update_text_imu(df, time, z):
@@ -335,7 +379,7 @@ def update_text_imu(df, time, z):
 
 # Main
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Visualise LiDAR and IMU CSV data via Dash")
+    parser = argparse.ArgumentParser(description="Visualize LiDAR and IMU CSV data via Dash")
     parser.add_argument("--max-pts", type=int, default=NBR_POINTS, help="Max point rows to load")
     parser.add_argument("--port", type=int, default=8050, help="Visualisation backend for point cloud (default: open3d)")
     args = parser.parse_args()
@@ -348,8 +392,9 @@ if __name__ == "__main__":
     df_pts_process, z = ceiling_process(df_pts)
 
     # Pre-calculate time range
-    min_time = df_pts_process['time'].min()
-    max_time = df_pts_process['time'].max()
+    #min_time = df_pts_process['time'].min()
+    #max_time = df_pts_process['time'].max()
+    second_min_time = df_pts_process['time'].drop_duplicates().nsmallest(2).iloc[-1]
     second_max_time = df_pts_process['time'].drop_duplicates().nlargest(2).iloc[-1]
     min_x = df_pts_process['x'].min()
     min_y = df_pts_process['y'].min()
@@ -363,36 +408,36 @@ if __name__ == "__main__":
 
     app.layout = dash.html.Div(
         style={
-            'backgroundColor': '#f5f7fb',
-            'color': 'black',
+            'backgroundColor': COLOR["bg_app"],
+            'color': COLOR["text_main"],
             'padding': '30px',
             'minHeight': '100vh',
             'fontFamily': 'Inter, sans-serif'
         }, children=[
-            dash.html.H1("LiDAR & IMU", style={'textAlign': 'center', 'color': '#1f2937'}),
+            dash.html.H1("LiDAR & IMU", style={'textAlign': 'center', 'color': COLOR["text_main"]}),
             
             # --- Control Panel ---
             dash.html.Div([
                 dash.html.Div(
                     "Show all data points",
-                    style={'color': '#374151'}
+                    style={'color': COLOR["text_main"], 'fontWeight': '500'}
                 ),
                 daq.ToggleSwitch(
                     id='switch',
                     value=False,
-                    color='#2563eb',
+                    color=COLOR["switch"],
                 ),
                 dash.html.Div(
                     [dash.html.Br(), "Timeline"],
-                    style={'color': '#374151'}
+                    style={'color': COLOR["text_main"], 'fontWeight': '500'}
                 ),
                 dash.dcc.Slider(
                     id='time-slider',
-                    min=min_time,
+                    min=second_min_time,
                     max=second_max_time,
-                    value=min_time,
+                    value=second_min_time,
                     marks=None,
-                    step=None
+                    step=DELTA
                 ),
                 dash.html.P(
                     id='imu-info',
@@ -410,21 +455,38 @@ if __name__ == "__main__":
                     style={
                         'lineHeight': '1.8',
                         'fontSize': '14px',
-                        'color': '#4b5563'
+                        'color': COLOR["text_sub"]
                     }
                 )
-            ],style={'padding': '20px', 'backgroundColor': 'white', 'borderRadius': '10px', 'marginBottom': '20px'}
+            ],style={
+                'padding': '20px',
+                'backgroundColor': COLOR["bg_card"],
+                'borderRadius': '10px',
+                'marginBottom': '20px',
+                'border': COLOR["border"]
+            }
         ),
 
         # --- Visuals ---
         dash.html.Div(
             dash.dcc.Graph(id='fig_pts', style={'height': '70vh'}), 
-            style={'padding': '10px', 'border': '1px solid #444', 'marginBottom': '20px'}
+            style={
+                'padding': '10px',
+                'backgroundColor': COLOR["bg_card"],
+                'border': COLOR["border"],
+                'marginBottom': '20px',
+                'borderRadius': '10px'
+            }
         ),
 
         dash.html.Div(
             dash.dcc.Graph(figure=fig_imu),
-            style={'padding': '10px', 'border': '1px solid #444'}
+            style={
+                'padding': '10px',
+                'backgroundColor': COLOR["bg_card"],
+                'border': COLOR["border"],
+                'borderRadius': '10px'
+            }
         )
     ])
 
@@ -441,8 +503,7 @@ if __name__ == "__main__":
             fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
             return "", fig_pts
         else:
-            if (selected_time == min_time):
-                print(f"TIME IS ZERO: {selected_time} = {min_time}")
+            if (selected_time == second_min_time):
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time, selected_time + DELTA)].copy()
             else:
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time - DELTA, selected_time + DELTA)].copy()
