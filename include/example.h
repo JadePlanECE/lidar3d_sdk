@@ -16,9 +16,11 @@
 using namespace unilidar_sdk2;
 namespace fs = std::filesystem;
 
+static const int DELTA = 100;
+static const bool SAVE = false;
 static const std::string PATH_POINTS_CSV = "../data/points.csv";
 static const std::string PATH_IMU_CSV = "../data/imu.csv";
-static const int DELTA = 100;
+
 
 void backupExistingFile(const std::string& filepath) {
     if (fs::exists(filepath)) {
@@ -43,29 +45,32 @@ void backupExistingFile(const std::string& filepath) {
 void exampleProcess(UnitreeLidarReader *lreader){
     std::ofstream pts_file_;
     std::ofstream imu_file_;
-    
-    // backup the old files before opening new ones
-    backupExistingFile(PATH_POINTS_CSV);
-    backupExistingFile(PATH_IMU_CSV);
 
-    // open points CSV and write header
-    pts_file_.open(PATH_POINTS_CSV, std::ios::out | std::ios::trunc);
-    if (!pts_file_) {
-        std::cerr << "[Logger] Cannot open " << PATH_POINTS_CSV << std::endl;
-    } else {
-        pts_file_ << "id,time,x,y,z,intensity\n";
-        pts_file_.flush();
-        std::cout << "[Logger] Writing points to " << PATH_POINTS_CSV << std::endl;
-    }
+    if (SAVE)
+    {
+        // backup the old files before opening new ones
+        backupExistingFile(PATH_POINTS_CSV);
+        backupExistingFile(PATH_IMU_CSV);
 
-    // open imu CSV qnd write header
-    imu_file_.open(PATH_IMU_CSV, std::ios::out | std::ios::trunc);
-    if (!imu_file_) {
-        std::cerr << "[Logger] Cannot open " << PATH_IMU_CSV << std::endl;
-    } else {
-        imu_file_ << "seq,time_sec,time_nsec,qw,qx,qy,qz,ang_x,ang_y,ang_z,acc_x,acc_y,acc_z\n";
-        imu_file_.flush();
-        std::cout << "[Logger] Writing IMU data to " << PATH_IMU_CSV << std::endl;
+        // open points CSV and write header
+        pts_file_.open(PATH_POINTS_CSV, std::ios::out | std::ios::trunc);
+        if (!pts_file_) {
+            std::cerr << "[Logger] Cannot open " << PATH_POINTS_CSV << std::endl;
+        } else {
+            pts_file_ << "id,time,x,y,z,intensity\n";
+            pts_file_.flush();
+            std::cout << "[Logger] Writing points to " << PATH_POINTS_CSV << std::endl;
+        }
+
+        // open imu CSV qnd write header
+        imu_file_.open(PATH_IMU_CSV, std::ios::out | std::ios::trunc);
+        if (!imu_file_) {
+            std::cerr << "[Logger] Cannot open " << PATH_IMU_CSV << std::endl;
+        } else {
+            imu_file_ << "seq,time_sec,time_nsec,qw,qx,qy,qz,ang_x,ang_y,ang_z,acc_x,acc_y,acc_z\n";
+            imu_file_.flush();
+            std::cout << "[Logger] Writing IMU data to " << PATH_IMU_CSV << std::endl;
+        }
     }
 
     std::atomic<bool> stop_requested(false);
@@ -92,10 +97,6 @@ void exampleProcess(UnitreeLidarReader *lreader){
     int imu_info = 0;
     int invalide_message = 0;
     int others = 0;
-    /*double sum_time = 0.0;
-    int counter_time = 0;
-    int sum_points = 0;
-    int counter_points = 0;*/
 
     while (!stop_requested)
     {
@@ -115,8 +116,8 @@ void exampleProcess(UnitreeLidarReader *lreader){
                         << imu.angular_velocity[0] << "," << imu.angular_velocity[1] << "," << imu.angular_velocity[2] << ","
                         << imu.linear_acceleration[0] << "," << imu.linear_acceleration[1] << "," << imu.linear_acceleration[2] << "\n";
                     imu_file_.flush();
-                    imu_info += 1;
                 }
+                imu_info += 1;
             }
             break;
         }
@@ -132,19 +133,8 @@ void exampleProcess(UnitreeLidarReader *lreader){
                             << cloud.points[i].intensity << "\n";
                     }
                     pts_file_.flush();
-                    points_3d += cloud.points.size();
                 }
-                /*elapsed = std::chrono::steady_clock::now() - start;
-                auto elapsed_ms = elapsed.count() * 1000;
-                std::cout << "[Process] Time to get data: " << elapsed_ms << " ms for " << cloud.points.size() << " points" << std::endl;
-                sum_points += cloud.points.size();
-                counter_points++;
-                if (elapsed_ms < 1000)
-                {
-                    sum_time += elapsed_ms;
-                    counter_time++;
-                }
-                start = std::chrono::steady_clock::now();*/
+                points_3d += cloud.points.size();
             }
             break;
         }
@@ -183,18 +173,15 @@ void exampleProcess(UnitreeLidarReader *lreader){
 
     std::cout << "[Result] For a delta of " << DELTA << ":" << std::endl;
     std::cout << "[Result] IMU info          - Sum: " << imu_info <<
-     "\n                           - Mean: " << imu_info / static_cast<double>(count) * 100 << std::endl;
+     "\n                           - Mean: " << imu_info / static_cast<double>(count) << std::endl;
     std::cout << "[Result] 3D points         - Sum: " << points_3d <<
-     "\n                           - Mean: " << points_3d / static_cast<double>(count) * 100 << std::endl;
+     "\n                           - Mean: " << points_3d / static_cast<double>(count) << std::endl;
     std::cout << "[Result] 2D points         - Sum: " << points_2d <<
-     "\n                           - Mean: " << points_2d / static_cast<double>(count) * 100 << std::endl;
+     "\n                           - Mean: " << points_2d / static_cast<double>(count) << std::endl;
     std::cout << "[Result] Invalide messages - Sum: " <<
-     invalide_message << "\n                           - Mean: " << invalide_message / static_cast<double>(count) * 100 << std::endl;
+     invalide_message << "\n                           - Mean: " << invalide_message / static_cast<double>(count) << std::endl;
     std::cout << "[Result] Other messages    - Sum: " << others <<
-     "\n                           - Mean: " << others / static_cast<double>(count) * 100 << std::endl;
-    
-    //std::cout << "[Result] Mean time getting data: " << sum_time / counter_time << " ms" << std::endl;
-    //std::cout << "[Result] Mean points: " << sum_points / counter_points << " points" << std::endl;
+     "\n                           - Mean: " << others / static_cast<double>(count) << std::endl;
 
     lreader->stopLidarRotation();
 }

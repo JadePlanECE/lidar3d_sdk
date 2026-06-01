@@ -4,9 +4,36 @@
 
 #include "example.h"
 
+bool force3DMode(unilidar_sdk2::UnitreeLidarReader *lreader, int timeout = 30)
+{
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_time = start_time;
+
+    // Init config
+    lreader->setLidarWorkMode(0);
+    lreader->startLidarRotation();
+
+    while (std::chrono::steady_clock::now() - start_time < std::chrono::seconds(timeout))
+    {
+        int packetType = lreader->runParse();
+
+        if (packetType == LIDAR_POINT_DATA_PACKET_TYPE) // 3D data
+        {
+            return true;
+        }
+        
+        auto now = std::chrono::steady_clock::now();
+        if (now - last_time > std::chrono::milliseconds(200)) {
+            lreader->setLidarWorkMode(0);
+            lreader->startLidarRotation();
+            last_time = now;
+        }
+    }
+    return false;
+};
+
 int main(int argc, char *argv[])
 {
-
     // Initialize
     UnitreeLidarReader *lreader = createUnitreeLidarReader();
 
@@ -18,26 +45,18 @@ int main(int argc, char *argv[])
 
     if (lreader->initializeUDP(lidar_port, lidar_ip, local_port, local_ip))
     {
-        printf("Unilidar initialization failed! Exit here!\n");
+        printf("[Error] Unilidar initialization failed. Exit here!\n");
         exit(-1);
     }
-    else
+    printf("[Initialization] Unilidar initialization succeed\n");
+
+    if (!force3DMode(lreader, 30))
     {
-        printf("Unilidar initialization succeed!\n");
-        sleep(1);
+        printf("[Error] Could not guarantee 3D mode. Exit here!\n");
+        lreader->stopLidarRotation();
+        exit(-1);
     }
-
-    lreader->stopLidarRotation();
-    sleep(1);
-
-    // Set lidar work mode
-    uint32_t workMode = 0;
-    std::cout << "set Lidar work mode to: " << workMode << std::endl;
-    lreader->setLidarWorkMode(workMode);
-    sleep(1);
-    
-    lreader->startLidarRotation();
-    sleep(1);
+    printf("[Initialization] Unilidar in 3D mode.\n");
 
     // Process
     exampleProcess(lreader);
