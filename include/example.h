@@ -18,6 +18,7 @@ namespace fs = std::filesystem;
 
 static const std::string PATH_POINTS_CSV = "../data/points.csv";
 static const std::string PATH_IMU_CSV = "../data/imu.csv";
+static const int DELTA = 100;
 
 void backupExistingFile(const std::string& filepath) {
     if (fs::exists(filepath)) {
@@ -82,12 +83,19 @@ void exampleProcess(UnitreeLidarReader *lreader){
     PointCloudUnitree cloud;
     
     std::cout << "[Process] Lidar is going to start.." << std::endl;
+    
     auto start = std::chrono::steady_clock::now();
     std::chrono::duration<double> elapsed;
-    double sum_time = 0.0;
+    int count = 0;
+    int points_3d = 0;
+    int points_2d = 0;
+    int imu_info = 0;
+    int invalide_message = 0;
+    int others = 0;
+    /*double sum_time = 0.0;
     int counter_time = 0;
     int sum_points = 0;
-    int counter_points = 0;
+    int counter_points = 0;*/
 
     while (!stop_requested)
     {
@@ -107,6 +115,7 @@ void exampleProcess(UnitreeLidarReader *lreader){
                         << imu.angular_velocity[0] << "," << imu.angular_velocity[1] << "," << imu.angular_velocity[2] << ","
                         << imu.linear_acceleration[0] << "," << imu.linear_acceleration[1] << "," << imu.linear_acceleration[2] << "\n";
                     imu_file_.flush();
+                    imu_info += 1;
                 }
             }
             break;
@@ -123,8 +132,9 @@ void exampleProcess(UnitreeLidarReader *lreader){
                             << cloud.points[i].intensity << "\n";
                     }
                     pts_file_.flush();
+                    points_3d += cloud.points.size();
                 }
-                elapsed = std::chrono::steady_clock::now() - start;
+                /*elapsed = std::chrono::steady_clock::now() - start;
                 auto elapsed_ms = elapsed.count() * 1000;
                 std::cout << "[Process] Time to get data: " << elapsed_ms << " ms for " << cloud.points.size() << " points" << std::endl;
                 sum_points += cloud.points.size();
@@ -134,17 +144,31 @@ void exampleProcess(UnitreeLidarReader *lreader){
                     sum_time += elapsed_ms;
                     counter_time++;
                 }
-                start = std::chrono::steady_clock::now();
+                start = std::chrono::steady_clock::now();*/
             }
             break;
         }
         case LIDAR_2D_POINT_DATA_PACKET_TYPE:
+            points_2d += 1;
             std::cout << "[Warning] Received 2D data packet" << std::endl;
             break;
 
+        case 0:
+            // no valid message parsed
+            // so we received invalide message
+            invalide_message += 1;
+            break;
+
         default:
+            others += 1;
             //std::cout << result << std::endl;
             break;
+        }
+
+        elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed.count() * 1000 > DELTA)
+        {
+            count += 1;
         }
     }
 
@@ -156,7 +180,21 @@ void exampleProcess(UnitreeLidarReader *lreader){
     
     if (pts_file_.is_open()) pts_file_.close();
     if (imu_file_.is_open()) imu_file_.close();
+
+    std::cout << "[Result] For a delta of " << DELTA << ":" << std::endl;
+    std::cout << "[Result] IMU info          - Sum: " << imu_info <<
+     "\n                           - Mean: " << imu_info / static_cast<double>(count) * 100 << std::endl;
+    std::cout << "[Result] 3D points         - Sum: " << points_3d <<
+     "\n                           - Mean: " << points_3d / static_cast<double>(count) * 100 << std::endl;
+    std::cout << "[Result] 2D points         - Sum: " << points_2d <<
+     "\n                           - Mean: " << points_2d / static_cast<double>(count) * 100 << std::endl;
+    std::cout << "[Result] Invalide messages - Sum: " <<
+     invalide_message << "\n                           - Mean: " << invalide_message / static_cast<double>(count) * 100 << std::endl;
+    std::cout << "[Result] Other messages    - Sum: " << others <<
+     "\n                           - Mean: " << others / static_cast<double>(count) * 100 << std::endl;
     
-    std::cout << "[Result] Mean time getting data: " << sum_time / counter_time << " ms" << std::endl;
-    std::cout << "[Result] Mean points: " << sum_points / counter_points << " points" << std::endl;
+    //std::cout << "[Result] Mean time getting data: " << sum_time / counter_time << " ms" << std::endl;
+    //std::cout << "[Result] Mean points: " << sum_points / counter_points << " points" << std::endl;
+
+    lreader->stopLidarRotation();
 }

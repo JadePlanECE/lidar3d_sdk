@@ -24,7 +24,11 @@ int main(int argc, char *argv[])
     else
     {
         printf("Unilidar initialization succeed!\n");
+        sleep(1);
     }
+
+    lreader->stopLidarRotation();
+    sleep(1);
 
     // Set lidar work mode
     uint32_t workMode = 0;
@@ -32,8 +36,7 @@ int main(int argc, char *argv[])
     lreader->setLidarWorkMode(workMode);
     sleep(1);
     
-    // Reset Lidar
-    lreader->resetLidar();
+    lreader->startLidarRotation();
     sleep(1);
 
     // Process
