@@ -18,22 +18,7 @@ add_executable(example_lidar_udp
 )
 target_link_libraries(example_lidar_udp  libunilidar_sdk2.a )
 
-add_executable(example_lidar_serial
-    examples/example_lidar_serial.cpp
-)
-target_link_libraries(example_lidar_serial  libunilidar_sdk2.a  )
-
 add_executable(set_ip_address
     examples/set_ip_address.cpp
 )
 target_link_libraries(set_ip_address  libunilidar_sdk2.a )
-
-add_executable(set_to_serial_mode
-    examples/set_to_serial_mode.cpp
-)
-target_link_libraries(set_to_serial_mode  libunilidar_sdk2.a )
-
-add_executable(set_to_udp_mode
-    examples/set_to_udp_mode.cpp
-)
-target_link_libraries(set_to_udp_mode  libunilidar_sdk2.a )
