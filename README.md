@@ -13,6 +13,47 @@ The files I work on most often:
 - include/example.h
 - examples/example_lidar_udp.cpp
 
+Structure of the code:
+```
+├── bin
+│   ├── example_lidar_serial
+│   ├── example_lidar_udp
+│   ├── set_ip_address
+│   ├── set_to_serial_mode
+│   └── set_to_udp_mode
+├── build
+│   ├── CMakeCache.txt
+│   ├── CMakeFiles
+│   ├── cmake_install.cmake
+│   └── Makefile
+├── CMakeLists.txt
+├── data
+│   ├── imu.csv
+│   ├── points.csv
+├── examples
+│   ├── example_lidar_serial.cpp
+│   ├── example_lidar_udp.cpp
+│   ├── set_ip_address.cpp
+│   ├── set_to_serial_mode.cpp
+│   └── set_to_udp_mode.cpp
+├── include
+│   ├── example.h
+│   ├── udp_handler.h
+│   ├── unitree_lidar_protocol.h
+│   ├── unitree_lidar_sdk_config.h
+│   ├── unitree_lidar_sdk.h
+│   ├── unitree_lidar_sdk_pcl.h
+│   └── unitree_lidar_utilities.h
+├── lib
+│   └── ...
+├── lidar_sdk
+│   └── ...
+├── read_lidar.py
+├── README.md
+└── requirements.tx
+```
+15 directories, 42 files
+
 ## Configuration of LiDAR
 
 To configure the LiDAR, you'll need to connect it to your computer via Ethernet.
