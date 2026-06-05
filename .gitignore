@@ -83,9 +83,13 @@ lidar_sdk/
 *.csv
 data/
 
-# autres
+# Autres
 lib/
 lib64/
 bin/
 /share
-/__*
+
+# Python
+__pycache__/
+.pytype/
+.Python
