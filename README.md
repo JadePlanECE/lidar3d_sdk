@@ -16,7 +16,6 @@ The files I work on most often:
 Structure of the code:
 ```
 ├── bin
-│   ├── example_lidar_serial
 │   ├── example_lidar_udp
 │   ├── set_ip_address
 │   ├── set_to_serial_mode
@@ -28,21 +27,18 @@ Structure of the code:
 │   └── Makefile
 ├── CMakeLists.txt
 ├── data
+│   ├── imu.npy
 │   ├── imu.csv
 │   ├── points.csv
+│   ├── points.npy
 ├── examples
-│   ├── example_lidar_serial.cpp
 │   ├── example_lidar_udp.cpp
-│   ├── set_ip_address.cpp
-│   ├── set_to_serial_mode.cpp
-│   └── set_to_udp_mode.cpp
+│   └── set_ip_address.cpp
 ├── include
 │   ├── example.h
-│   ├── udp_handler.h
 │   ├── unitree_lidar_protocol.h
 │   ├── unitree_lidar_sdk_config.h
 │   ├── unitree_lidar_sdk.h
-│   ├── unitree_lidar_sdk_pcl.h
 │   └── unitree_lidar_utilities.h
 ├── lib
 │   └── ...
@@ -50,9 +46,16 @@ Structure of the code:
 │   └── ...
 ├── read_lidar.py
 ├── README.md
-└── requirements.tx
+├── requirements.txt
+├── src
+│   ├── lidar
+│   ├── load.py
+│   ├── main.py
+│   ├── process.py
+│   ├── __pycache__
+│   └── visualisation.py
 ```
-15 directories, 42 files
+18 directories, 59 files
 
 ## Configuration of LiDAR
 
