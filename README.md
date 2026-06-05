@@ -52,7 +52,6 @@ Structure of the code:
 │   ├── load.py
 │   ├── main.py
 │   ├── process.py
-│   ├── __pycache__
 │   └── visualisation.py
 ```
 18 directories, 59 files
