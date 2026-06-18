@@ -4,7 +4,7 @@ import time
 import math
 
 # Constants
-TIME_OUT = 10.0
+TIME_OUT = 16.0
 
 # Frame delimiters
 HEADER_SIZE   = 12
@@ -17,7 +17,7 @@ LIDAR_USER_CMD_PACKET_TYPE         = 100  # host → lidar : commande utilisateu
 LIDAR_ACK_DATA_PACKET_TYPE         = 101  # lidar → host : accusé de réception
 LIDAR_POINT_DATA_PACKET_TYPE       = 102  # lidar → host : scan 3D
 LIDAR_IMU_DATA_PACKET_TYPE         = 104  # lidar → host : IMU
-LIDAR_WORK_MODE_CONFIG_PACKET_TYPE = 2002  # host → lidar : config work mode
+LIDAR_WORK_MODE_CONFIG_PACKET_TYPE = 107  # host → lidar : config work mode
 
 # Command types
 USER_CMD_RESET_TYPE   = 1
@@ -88,7 +88,7 @@ class Lidar:
             return
         try:
             sent = self.sock.sendto(payload, (self.lidar_ip, self.sending_port))
-            print(f"[TX] Sent {sent} bytes to {self.lidar_ip}:{self.sending_port}")
+            #print(f"[Debug] Sent {sent} bytes to {self.lidar_ip}:{self.sending_port}")
         except Exception as e:
             print(f"[Error] sendto failed: {e}")
             return
@@ -101,6 +101,7 @@ class Lidar:
         frame   = _build_frame(LIDAR_USER_CMD_PACKET_TYPE, payload)
         self._send_command(frame)
         print("[Init] Starting LiDAR")
+        time.sleep(TIME_OUT)
 
     def stop_lidar(self):
         """
@@ -157,7 +158,7 @@ class Lidar:
             FrameTail   (12): crc32(u32) + msg_type_check(u32) + reserve[2] + tail[2]
         """
         if len(raw) != PKT_SIZE_ACK:
-            print(f"[Error] Incorrect number of bytes for ACK: {len(raw)} bytes (expected {PKT_SIZE_ACK})")
+            #print(f"[Error] Incorrect number of bytes for ACK: {len(raw)} bytes (expected {PKT_SIZE_ACK})")
             return
 
         unpacked = struct.unpack(_FMT_ACK_DATA, raw)
@@ -178,7 +179,7 @@ class Lidar:
 
     def _parse_point_data(self, raw: bytes) -> dict:
         if len(raw) != PKT_SIZE_POINT:
-            print(f"[Error] Incorrect number of bytes for LiDAR: {len(raw)} bytes (expected {PKT_SIZE_POINT})")
+            #print(f"[Error] Incorrect number of bytes for LiDAR: {len(raw)} bytes (expected {PKT_SIZE_POINT})")
             return {}
 
         unpacked = struct.unpack(_FMT_POINT_DATA, raw)
@@ -239,7 +240,7 @@ class Lidar:
 
     def _parse_imu(self, raw: bytes) -> dict:
         if len(raw) != PKT_SIZE_IMU:
-            print(f"[Error] Incorrect number of bytes for IMU: {len(raw)} bytes (expected {PKT_SIZE_IMU})")
+            #print(f"[Error] Incorrect number of bytes for IMU: {len(raw)} bytes (expected {PKT_SIZE_IMU})")
             return {}
 
         unpacked =  struct.unpack(_FMT_IMU_DATA, raw)

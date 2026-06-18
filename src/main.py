@@ -1,5 +1,4 @@
 import argparse
-import numpy as np
 import pandas as pd
 import lidar.lidar_manager as lidar
 import load
@@ -33,8 +32,16 @@ if __name__ == "__main__":
     for frame in df_imu:
         df_imu_process.append(processeur.parse_imu(frame))
 
+    if (df_pts_process[0] is None) or (df_pts_process[0] == []) or (df_pts_process[0] == {}):
+        df_pts_process.pop(0)
+
     df_pts_process = pd.DataFrame(df_pts_process)
     df_imu_process = pd.DataFrame(df_imu_process)
+
+    if df_pts_process.empty or df_imu_process.empty:
+        print("[Error] Dataframes empty")
+        raise SystemExit from None
+
     cols = ["x", "y", "z", "intensity", "time"]
     df_pts_process = df_pts_process.explode(cols, ignore_index=True)
     df_pts_process[cols] = df_pts_process[cols].apply(pd.to_numeric, errors="coerce")
