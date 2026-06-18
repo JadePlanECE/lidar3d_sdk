@@ -25,7 +25,7 @@ THEMES = {
         "bg_card": "white",
         "text_main": "#1f2937",
         "text_sub": "#4b5563",
-        "switch": "#6f91da",
+        "switch": "#3b82f6",
         "plotly_template": "plotly_white",
         "grid_color": "#e5e7eb",
         "border": "1px solid #e5e7eb",
@@ -38,11 +38,11 @@ THEMES = {
         "bg_card": "#1f2937",
         "text_main": "#f9fafb",
         "text_sub": "#d1d5db",
-        "switch": "#02153f",
+        "switch": "#14b8a6",
         "plotly_template": "plotly_dark",
         "grid_color": "#374151",
         "border": "1px solid #374151",
-        "marker_lidar": "#38bdf8",
+        "marker_lidar": "#14b8a6",
         "marker_corners": "#036B62",
         "marker_dist": "white"
     }
@@ -51,14 +51,20 @@ THEMES = {
 COLOR = THEMES["dark"] if DARK_MODE else THEMES["light"]
 
 # Paths
-FILES = ".csv"
+#FILES = ".csv"
 #FILES = "_time.csv"
 #FILES = "_huge.csv"
 #FILES = "_interesting.csv"
 #FILES = "_test.csv"
+#FILES = "-lidar3.csv"
+#FILES = "_20230315_153132-lidar2.csv"
+FILES = "_20230315_152320-lidar1.csv"
 
-POINTS_CSV = "./data/points" + FILES
-IMU_CSV = "./data/imu" + FILES
+#POINTS_CSV = "./data/points" + FILES
+#IMU_CSV = "./data/imu" + FILES
+#POINTS_CSV = "./data/alexander/points" + FILES
+POINTS_CSV = "./data/alexander/split_files/split_part_3.csv"
+IMU_CSV = "./data/alexander/imu" + FILES
 
 # Load data
 def load_csv(path):
@@ -127,8 +133,8 @@ def deskew_points(df_window, df_imu):
 
 def ceiling_process(df):
     ceiling_z = find_ceiling(df)
-    df_no_ceiling = erase_ceiling(df, ceiling_z)
-    return df_no_ceiling, ceiling_z
+    #df_no_ceiling = erase_ceiling(df, ceiling_z)
+    return df, ceiling_z
 
 def corners_process(df, z):
     df_walls = find_walls(df, z)
@@ -451,8 +457,8 @@ def update_text_imu(df, time, z):
     qy_sum = second_df['qy'].mean()
     qz_sum = second_df['qz'].mean()
 
-    r = R.from_quat([qx_sum, qy_sum, qz_sum, qw_sum])
-    r_x, r_y, r_z = r.as_euler('xyz', degrees=True)
+    #r = R.from_quat([qx_sum, qy_sum, qz_sum, qw_sum])
+    #r_x, r_y, r_z = r.as_euler('xyz', degrees=True)
 
     return [
         f"LiDAR height: {TRAIN_HEIGHT-z:.2f} m", dash.html.Br(),
@@ -461,9 +467,14 @@ def update_text_imu(df, time, z):
         f"Acc y: {acc_y_sum:.3f} m/s", dash.html.Br(),
         f"Acc z: {acc_z_sum:.3f} m/s", dash.html.Br(),
         dash.html.Br(),
+        "Rot x: ... degrees", dash.html.Br(),
+        "Rot y: ... degrees", dash.html.Br(),
+        "Rot z: ... degrees"
+        """
         f"Rot x: {r_x:.3f} degrees", dash.html.Br(),
         f"Rot y: {r_y:.3f} degrees", dash.html.Br(),
         f"Rot z: {r_z:.3f} degrees"
+        """
     ]
 
 # Main
@@ -477,9 +488,16 @@ if __name__ == "__main__":
     df_imu = load_csv(IMU_CSV)
 
     df_imu = create_roll_pitch_yaw(df_imu)
+    #print("[Debug] IMU processed")
 
     # Process data points
     df_pts_process, z = ceiling_process(df_pts)
+    df_pts_process = df_pts_process[
+            (df_pts_process["x"] < 30) &
+            (df_pts_process["y"] < 30) &
+            (df_pts_process["z"] < 30)
+        ].copy()
+    #print("[Debug] Points processed")
 
     # Pre-calculate time range
     second_min_time = df_pts_process['time'].drop_duplicates().nsmallest(2).iloc[-1]
@@ -488,11 +506,13 @@ if __name__ == "__main__":
     min_y = df_pts_process['y'].min()
     max_x = df_pts_process['x'].max()
     max_y = df_pts_process['y'].max()
+    #print("[Debug] Min/Max calculated")
+
+    fig_imu = create_imu_figure(df_imu)
+    #print("[Debug] Figure IMU created")
 
     # Initialize Dash App
     app = dash.Dash(__name__)
-
-    fig_imu = create_imu_figure(df_imu)
 
     app.layout = dash.html.Div(
         style={
@@ -500,7 +520,7 @@ if __name__ == "__main__":
             'color': COLOR["text_main"],
             'padding': '30px',
             'minHeight': '100vh',
-            'fontFamily': 'Inter, sans-serif'
+            'fontFamily': 'Inter, sans-serif',
         }, children=[
             dash.html.H1("LiDAR & IMU", style={'textAlign': 'center', 'color': COLOR["text_main"]}),
             
@@ -521,6 +541,7 @@ if __name__ == "__main__":
                 ),
                 dash.dcc.Slider(
                     id='time-slider',
+                    className="custom-slider",
                     min=second_min_time,
                     max=second_max_time,
                     value=second_min_time,
@@ -577,6 +598,7 @@ if __name__ == "__main__":
             }
         )
     ])
+    #print("[Debug] App init")
 
     @dash.callback(
         dash.Output('imu-info', 'children'),
@@ -588,17 +610,22 @@ if __name__ == "__main__":
         if no_time:
             df_pts_process, z = ceiling_process(df_pts)
             c = corners_process(df_pts_process, z)
-            fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
+            fig_pts = create_pc_figure(df_pts, c, min_x, min_y, max_x, max_y, args.max_pts)
             return "", fig_pts
         else:
             if (selected_time == second_min_time):
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time, selected_time + DELTA)].copy()
             else:
                 filtered_df_pts = df_pts[df_pts['time'].between(selected_time - DELTA, selected_time + DELTA)].copy()
+            #print("[Debug] df filtred")
             df_pts_deskew = deskew_points(filtered_df_pts, df_imu)
+            #print("[Debug] df deskew")
             df_pts_process, z = ceiling_process(df_pts_deskew)
+            #print("[Debug] ceiling found")
             c = corners_process(df_pts_process, z)
+            #print("[Debug] corners found")
             fig_pts = create_pc_figure(df_pts_process, c, min_x, min_y, max_x, max_y, args.max_pts)
+            #print("[Debug] Figure pts created")
             return update_text_imu(df_imu, selected_time, z), fig_pts
 
     # Run server on 0.0.0.0 to make it accessible on the local network
