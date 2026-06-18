@@ -4,57 +4,10 @@ The LiDAR launch code is based on the SDK [link here](https://github.com/unitree
 
 To establish the UDP connection (via Ethernet cable) between the LiDAR and the computer or Jetson you are using, please read the configuration instructions. You will then be provided with instructions on how to launch it.
 
-After that, you can create a Python virtual environment to begin data processing.
-
 Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adapter to power on the LiDAR.
 
-The files I work on most often:
-- read_lidar.py
-- include/example.h
-- examples/example_lidar_udp.cpp
+Open directrly the folder named `original_sdk` to launch LiDAR that way.
 
-Structure of the code:
-```
-├── bin
-│   ├── example_lidar_udp
-│   ├── set_ip_address
-│   ├── set_to_serial_mode
-│   └── set_to_udp_mode
-├── build
-│   ├── CMakeCache.txt
-│   ├── CMakeFiles
-│   ├── cmake_install.cmake
-│   └── Makefile
-├── CMakeLists.txt
-├── data
-│   ├── imu.npy
-│   ├── imu.csv
-│   ├── points.csv
-│   ├── points.npy
-├── examples
-│   ├── example_lidar_udp.cpp
-│   └── set_ip_address.cpp
-├── include
-│   ├── example.h
-│   ├── unitree_lidar_protocol.h
-│   ├── unitree_lidar_sdk_config.h
-│   ├── unitree_lidar_sdk.h
-│   └── unitree_lidar_utilities.h
-├── lib
-│   └── ...
-├── lidar_sdk
-│   └── ...
-├── read_lidar.py
-├── README.md
-├── requirements.txt
-├── src
-│   ├── lidar
-│   ├── load.py
-│   ├── main.py
-│   ├── process.py
-│   └── visualisation.py
-```
-18 directories, 59 files
 
 ## Configuration of LiDAR
 
@@ -96,21 +49,6 @@ ip route
 ping 192.168.1.62
 ```
 
-## Compilation and run of C++ code
-
-Compilation
-```
-mkdir build
-
-cd build
-
-cmake .. && make -j2
-```
-
-Run
-```
-../bin/example_lidar_udp
-```
 
 ## Python virtual environment
 
@@ -154,13 +92,40 @@ deactivate
 rm -rf lidar_sdk
 ```
 
-## Data processing
 
-Run the command to run the data processing.
+## Launch LiDAR
+
+Go on the src folder.
 ```
-python read_lidar.py
+cd src/
+```
+
+Run the following command.
+```
+python main.py
 ```
 
 You can also add arguments:
-- Maximum of points render (default = 200 000) `--max-pts`
+- Use a data file and not launching the liDAR (default = None) `--file-name`
+- Changing the interval of time (default = 0.1) `--delta`
+- Saving or not the data of the LiDAR (default = False) `--save`
 - Port (default = 8050) `--port`
+- Maximum of points rendering (default = 200 000) `--max-pts`
+- Dar mode (default = True) `--dark-mode`
+
+
+## How to use original sdk?
+
+Compilation
+```
+mkdir build
+
+cd build
+
+cmake .. && make -j2
+```
+
+Run
+```
+../bin/example_lidar_udp
+```
