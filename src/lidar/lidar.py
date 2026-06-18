@@ -1,7 +1,5 @@
 import socket
 import struct
-import binascii
-import zlib
 import time
 import math
 
@@ -19,7 +17,7 @@ LIDAR_USER_CMD_PACKET_TYPE         = 100  # host → lidar : commande utilisateu
 LIDAR_ACK_DATA_PACKET_TYPE         = 101  # lidar → host : accusé de réception
 LIDAR_POINT_DATA_PACKET_TYPE       = 102  # lidar → host : scan 3D
 LIDAR_IMU_DATA_PACKET_TYPE         = 104  # lidar → host : IMU
-LIDAR_WORK_MODE_CONFIG_PACKET_TYPE = 107  # host → lidar : config work mode
+LIDAR_WORK_MODE_CONFIG_PACKET_TYPE = 2002  # host → lidar : config work mode
 
 # Command types
 USER_CMD_RESET_TYPE   = 1
@@ -53,24 +51,10 @@ def _build_frame(packet_type: int, payload: bytes) -> bytes:
     packet_size = HEADER_SIZE + len(payload) + TAIL_SIZE
     header = _FRAME_HEADER + struct.pack('<II', packet_type, packet_size)
 
-    # CRC covers header + payload (everything before FrameTail)
-    crc = _crc32(header + payload)
-    #crc = binascii.crc32(header + payload) & 0xFFFFFFFF
-    #crc = zlib.crc32(header + payload) & 0xFFFFFFFF
+    crc = _crc32(payload)
     tail = struct.pack('<II', crc, 0) + bytes([0x00, 0x00]) + _FRAME_TAIL
 
     return header + payload + tail
-    
-    packet_size = HEADER_SIZE + len(payload) + TAIL_SIZE
-    header = _FRAME_HEADER + struct.pack('<II', packet_type, packet_size)
-    
-    tail_after_crc = struct.pack('<I', packet_type) + bytes([0x00, 0x00]) + _FRAME_TAIL
-    data_to_crc = header + payload + tail_after_crc
-    
-    crc_value = zlib.crc32(data_to_crc) & 0xFFFFFFFF
-    
-    final_tail = struct.pack('<I', crc_value) + tail_after_crc
-    return header + payload + final_tail
 
 
 class Lidar:
