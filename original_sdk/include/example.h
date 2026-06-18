@@ -93,7 +93,6 @@ void exampleProcess(UnitreeLidarReader *lreader){
     std::chrono::duration<double> elapsed;
     int count = 0;
     int points_3d = 0;
-    int points_2d = 0;
     int imu_info = 0;
     int invalide_message = 0;
     int others = 0;
@@ -138,11 +137,6 @@ void exampleProcess(UnitreeLidarReader *lreader){
             }
             break;
         }
-        case LIDAR_2D_POINT_DATA_PACKET_TYPE:
-            points_2d += 1;
-            std::cout << "[Warning] Received 2D data packet" << std::endl;
-            break;
-
         case 0:
             // no valid message parsed
             // so we received invalide message
@@ -159,6 +153,7 @@ void exampleProcess(UnitreeLidarReader *lreader){
         if (elapsed.count() * 1000 > DELTA)
         {
             count += 1;
+            start = std::chrono::steady_clock::now();
         }
     }
 
@@ -176,8 +171,6 @@ void exampleProcess(UnitreeLidarReader *lreader){
      "\n                           - Mean: " << imu_info / static_cast<double>(count) << std::endl;
     std::cout << "[Result] 3D points         - Sum: " << points_3d <<
      "\n                           - Mean: " << points_3d / static_cast<double>(count) << std::endl;
-    std::cout << "[Result] 2D points         - Sum: " << points_2d <<
-     "\n                           - Mean: " << points_2d / static_cast<double>(count) << std::endl;
     std::cout << "[Result] Invalide messages - Sum: " <<
      invalide_message << "\n                           - Mean: " << invalide_message / static_cast<double>(count) << std::endl;
     std::cout << "[Result] Other messages    - Sum: " << others <<
