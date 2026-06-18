@@ -19,6 +19,21 @@ class Visualisation:
         min_time, max_time, min_x, max_x, min_y, max_y = self.processeur.calculate_time(self.df_pts)
         self.min_time = min_time
         self.max_time = max_time
+        if min_time == max_time:
+            print("[Warning] min time slider = max time slider")
+            print(f"min time slider: {min_time}")
+            print(f"max time slider: {max_time}")
+            print(f"delta: {delta}")
+        elif min_time == max_time + delta:
+            print("[Warning] min time slider = max time slider + delta")
+            print(f"min time slider: {min_time}")
+            print(f"max time slider: {max_time}")
+            print(f"delta: {delta}")
+        elif min_time + delta > max_time:
+            print("[Warning] min time slider + delta > max time slider")
+            print(f"min time slider: {min_time}")
+            print(f"max time slider: {max_time}")
+            print(f"delta: {delta}")
         self.min_x = min_x
         self.max_x = max_x
         self.min_y = min_y
@@ -145,20 +160,30 @@ class Visualisation:
 
     def create_pts_figure(self, df, c):
         if not df.empty:
-            # calculate x and y closest to the lidar
+            # calculate x and y closest and farthest to the lidar
             distances = np.hypot(df["x"].values, df["y"].values)
-            i = distances.argmin()
+            i_min = distances.argmin()
+            i_max = distances.argmax()
 
-            d = distances[i]
-            x = df["x"].values[i]
-            y = df["y"].values[i]
+            d_min = distances[i_min]
+            d_max = distances[i_max]
 
-            x = np.array([x])
-            y = np.array([y])
+            x_min = df["x"].values[i_min]
+            y_min = df["y"].values[i_min]
+            x_max = df["x"].values[i_max]
+            y_max = df["y"].values[i_max]
+
+            x_min = np.array([x_min])
+            y_min = np.array([y_min])
+            x_max = np.array([x_max])
+            y_max = np.array([y_max])
         else:
-            d = 0
-            x = np.array([0.0])
-            y = np.array([0.0])
+            d_min = 0
+            d_max = 0
+            x_min = np.array([0.0])
+            y_min = np.array([0.0])
+            x_max = np.array([0.0])
+            y_max = np.array([0.0])
 
         # check number of points
         if len(df) > self.max_pts:
@@ -185,11 +210,18 @@ class Visualisation:
         ))
 
         fig.add_trace(go.Scatter3d(
-            x=x, y=y, z=zero,
+            x=x_min, y=y_min, z=zero,
             mode='markers+text',
             marker=dict(size=6, color=self.colors["marker_dist"], symbol='cross'),
             name='closest-point',
-            text=[f"Dist={round(d,4)}"]
+            text=[f"Dist={round(d_min,4)}"]
+        ))
+        fig.add_trace(go.Scatter3d(
+            x=x_max, y=y_max, z=zero,
+            mode='markers+text',
+            marker=dict(size=6, color=self.colors["marker_dist"], symbol='cross'),
+            name='farthest-point',
+            text=[f"Dist={round(d_max,4)}"]
         ))
 
         z_display = df['z'].mean()
@@ -297,21 +329,25 @@ class Visualisation:
             dash.Input('switch', 'value')
         )
         def update_figures(selected_time, no_time):
+            df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
             if no_time:
-                df_pts_process, z = self.processeur.ceiling_process(self.df_pts)
+                df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
                 c = self.processeur.corners_process(df_pts_process, z)
-                fig_pts = self.processeur.create_pc_figure(self.df_pts, c, self.min_x, self.min_y, self.max_x, self.max_y, self.max_pts)
+                fig_pts = self.create_pts_figure(df_pts_process, c)
                 return "", fig_pts
             else:
                 if (selected_time == self.min_time):
-                    filtered_df_pts = self.df_pts[self.df_pts['time'].between(selected_time, selected_time + self.delta)].copy()
+                    filtered_df_pts = df_pts_deskew[df_pts_deskew['time'].between(selected_time, selected_time + self.delta)].copy()
+                    if (filtered_df_pts.equals(df_pts_deskew)):
+                        print("df_pts is not filtred")
                 else:
-                    filtered_df_pts = self.df_pts[self.df_pts['time'].between(selected_time - self.delta, selected_time + self.delta)].copy()
-                df_pts_deskew = self.processeur.deskew_points(filtered_df_pts, self.df_imu)
+                    filtered_df_pts = df_pts_deskew[df_pts_deskew['time'].between(selected_time - self.delta, selected_time + self.delta)].copy()
+                    if (filtered_df_pts.equals(df_pts_deskew)):
+                        print("df_pts is not filtred")
                 df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
                 c = self.processeur.corners_process(df_pts_process, z)
-                fig_pts = self.processeur.create_pc_figure(df_pts_process, c, self.min_x, self.min_y, self.max_x, self.max_y, self.max_pts)
-                return self.processeur.update_text_imu(self.df_imu, selected_time, z), fig_pts
+                fig_pts = self.create_pts_figure(df_pts_process, c)
+                return self.update_text_imu(self.df_imu, selected_time, z), fig_pts
 
         print(f"\n--- Server starting on port {self.port} ---")
         self.app.run(debug=False, host='0.0.0.0', port=self.port)
