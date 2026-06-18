@@ -7,10 +7,10 @@ import process
 import visualisation as viz
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=".")
-    parser.add_argument("--file-name", type=str, default="", help="Name of the CSV files stored in the 'data' folder")
-    parser.add_argument("--delta", type=int, default=100, help="Delta time to get data")
-    parser.add_argument("--save", type=bool, default=True, help="Save data in CSV files")
+    parser = argparse.ArgumentParser(description=None)
+    parser.add_argument("--file-name", type=str, default=None, help="Name of the CSV files stored in the 'data' folder")
+    parser.add_argument("--delta", type=float, default=0.1, help="Delta time to get data")
+    parser.add_argument("--save", type=bool, default=False, help="Save data in CSV files")
     parser.add_argument("--port", type=int, default=8050, help="Port for Dash visualisation")
     parser.add_argument("--max-pts", type=int, default=200000, help="Max point rows to visualize")
     parser.add_argument("--dark-mode", type=bool, default=True, help="Visalisation in dark mode")
@@ -35,8 +35,11 @@ if __name__ == "__main__":
 
     df_pts_process = pd.DataFrame(df_pts_process)
     df_imu_process = pd.DataFrame(df_imu_process)
-    df_pts_process = df_pts_process.explode(["x", "y", "z", "intensity", "time"], ignore_index=True)
-    
+    cols = ["x", "y", "z", "intensity", "time"]
+    df_pts_process = df_pts_process.explode(cols, ignore_index=True)
+    df_pts_process[cols] = df_pts_process[cols].apply(pd.to_numeric, errors="coerce")
+
+    df_pts_process = processeur.size_limits(df_pts_process, threshold=30)
     df_imu_process = processeur.create_roll_pitch_yaw(df_imu_process)
 
     # Dash vizualisation

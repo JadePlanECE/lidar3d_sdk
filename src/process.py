@@ -87,6 +87,7 @@ class Process:
             'seq': meta_data["seq"],
             'timestamp_sec': meta_data["timestamp_sec"],
             'timestamp_nsec': meta_data["timestamp_nsec"],
+            'timestamp_total': meta_data["timestamp_sec"] + meta_data["timestamp_nsec"] * 1e-9,
 
             'x': x,
             'y': y,
@@ -101,8 +102,8 @@ class Process:
         
         flat_entry = {
             "seq": meta_data["seq"],
-            "timestamp_sec": meta_data["timestamp_sec"],
-            "timestamp_nsec": meta_data["timestamp_nsec"],
+            "time_sec": meta_data["timestamp_sec"],
+            "time_nsec": meta_data["timestamp_nsec"],
 
             # Quaternions (Note: SciPy expects [x, y, z, w] by default)
             # Check if your data is [w, x, y, z] or [x, y, z, w]. 
@@ -125,6 +126,13 @@ class Process:
         }
         return flat_entry
 
+    def size_limits(self, df, threshold=30):
+        return df[
+            (df["x"] < threshold) &
+            (df["y"] < threshold) &
+            (df["z"] < threshold)
+        ].copy()
+
     def create_roll_pitch_yaw(self, df):
         df["acc_z_corrected"] = df["acc_z"] - 9.81
 
@@ -143,10 +151,10 @@ class Process:
         return df
     
     def calculate_time(self, df):
-        #min_time = df['time'].drop_duplicates().nsmallest(2).iloc[-1]
-        #max_time = df['time'].drop_duplicates().nlargest(2).iloc[-1]
-        min_time = df['time'].min()
-        max_time = df['time'].max()
+        min_time = df['timestamp_total'].drop_duplicates().nsmallest(2).iloc[-1]
+        max_time = df['timestamp_total'].drop_duplicates().nlargest(2).iloc[-1]
+        #min_time = df['timestamp_total'].min()
+        #max_time = df['timestamp_total'].max()
         min_x = df['x'].min()
         min_y = df['y'].min()
         max_x = df['x'].max()
@@ -165,14 +173,15 @@ class Process:
         t0 = df_pts['time'].min()
         dt = (df_pts['time'] - t0).values  # shape (N,)
 
-        # Build a unified time axis for IMU (seconds)
-        imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values / 1e9
+        # Build a unified time axis (seconds)
+        imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values * 1e-9
+        pts_t = df_pts['timestamp_total'].values
 
         # Interpolate yaw rate and accelerations onto each LiDAR point's timestamp
         # (use cumulative yaw, not yaw itself, for angular displacement)
-        gyro_z  = np.interp(df_pts['time'].values, imu_t, df_imu['yaw'].values)
-        acc_x   = np.interp(df_pts['time'].values, imu_t, df_imu['acc_x'].values)
-        acc_y   = np.interp(df_pts['time'].values, imu_t, df_imu['acc_y'].values)
+        gyro_z  = np.interp(pts_t, imu_t, df_imu['yaw'].values)
+        acc_x   = np.interp(pts_t, imu_t, df_imu['acc_x'].values)
+        acc_y   = np.interp(pts_t, imu_t, df_imu['acc_y'].values)
 
         dtheta = gyro_z * dt
         dx     = 0.5 * acc_x * dt**2
@@ -190,7 +199,7 @@ class Process:
 
         return df_out
 
-    def find_ceiling(df):
+    def find_ceiling(self, df):
         """
         Finds the ceiling height by looking for the statistical mode of the Z-axis
         We must put more weight to the points closer to x=0 and y=0
@@ -209,7 +218,7 @@ class Process:
         #print(f"[Process] Detected ceiling at Z = {ceiling_z:.2f}")
         return ceiling_z
 
-    def erease_ceiling(df, z, threshold=0.4):
+    def erease_ceiling(self, df, z, threshold=0.4):
         """
         Removes points that are within a threshold of the detected ceiling + the upper part
         """
@@ -219,7 +228,7 @@ class Process:
     
         return df[df['z'] < (z - threshold)].copy()
 
-    def find_walls(df, ceiling, margin=0.2):
+    def find_walls(self, df, ceiling, margin=0.2):
         """
         Classifies points as walls if they are in the middle between :
         - the ceiling (erased)
@@ -241,7 +250,7 @@ class Process:
         #print(f"[Process] Wall strip [{lower:.2f}, {upper:.2f}]: {len(strip):,} points")
         return strip
 
-    def find_corners(df, max_walls=10, min_pts=100, corner_threshold=0.5):
+    def find_corners(self, df, max_walls=10, min_pts=100, corner_threshold=0.5):
         points = df[['x', 'y']].values
         if len(points) < min_pts:
             return None
@@ -301,9 +310,9 @@ class Process:
 
         return np.array(final) if final else None
 
-    def ceiing_process(self, df):
+    def ceiling_process(self, df):
         ceiling_z = self.find_ceiling(df)
-        df_no_ceiling = self.erase_ceiling(df, ceiling_z)
+        df_no_ceiling = self.erease_ceiling(df, ceiling_z)
         return df_no_ceiling, ceiling_z
 
     def corners_process(self, df, z):
@@ -313,4 +322,4 @@ class Process:
             print("[Error] No wall points found.")
             return None
 
-        return self.find_corners_hough(df_walls)
+        return self.find_corners(df_walls)
