@@ -60,11 +60,11 @@ COLOR = THEMES["dark"] if DARK_MODE else THEMES["light"]
 #FILES = "_20230315_153132-lidar2.csv"
 FILES = "_20230315_152320-lidar1.csv"
 
-#POINTS_CSV = "./data/points" + FILES
-#IMU_CSV = "./data/imu" + FILES
-#POINTS_CSV = "./data/alexander/points" + FILES
-POINTS_CSV = "./data/alexander/split_files/split_part_3.csv"
-IMU_CSV = "./data/alexander/imu" + FILES
+#POINTS_CSV = "../data/points" + FILES
+#IMU_CSV = "../data/imu" + FILES
+#POINTS_CSV = "../data/alexander/points" + FILES
+POINTS_CSV = "../data/alexander/split_files/split_part_3.csv"
+IMU_CSV = "../data/alexander/imu" + FILES
 
 # Load data
 def load_csv(path):
