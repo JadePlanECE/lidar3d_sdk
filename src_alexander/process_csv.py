@@ -23,7 +23,7 @@ class Process:
 
         return df
 
-    def angle_lidar(self, df, angle=45.0):
+    def angle_lidar(self, df, angle=30.0):
         """
         Correct LiDAR points acquired with a tilt angle (degrees) around the y-axis, with indirect/clockwise rotation
 
@@ -40,6 +40,16 @@ class Process:
 
         return df
 
+    def size_limits(self, df, threshold=30):
+        return df[
+            (df["x"] < threshold) &
+            (df["y"] < threshold) &
+            (df["z"] < threshold) &
+            (df["x"] > -threshold) &
+            (df["y"] > -threshold) &
+            (df["z"] > -threshold)
+        ].copy()
+
     def calculate_time(self, df):
         min_time = df['time'].drop_duplicates().nsmallest(2).iloc[-1]
         max_time = df['time'].drop_duplicates().nlargest(2).iloc[-1]
@@ -54,8 +64,7 @@ class Process:
     # --- Process ---
     def deskew_points(self, df_pts, df_imu):
         """
-        Vectorized IMU deskew — compensates platform motion within the time window.
-        Reference pose = start of window (t0).
+        Vectorized IMU deskew
         """
         if df_pts.empty or df_imu.empty:
             return df_pts
@@ -67,24 +76,34 @@ class Process:
         imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values / 1e9
 
         # Interpolate yaw rate and accelerations onto each LiDAR point's timestamp
-        # (use cumulative yaw, not yaw itself, for angular displacement)
+        gyro_x  = np.interp(df_pts['time'].values, imu_t, df_imu['roll'].values)
+        gyro_y  = np.interp(df_pts['time'].values, imu_t, df_imu['pitch'].values)
         gyro_z  = np.interp(df_pts['time'].values, imu_t, df_imu['yaw'].values)
+
         acc_x   = np.interp(df_pts['time'].values, imu_t, df_imu['acc_x'].values)
         acc_y   = np.interp(df_pts['time'].values, imu_t, df_imu['acc_y'].values)
+        acc_z   = np.interp(df_pts['time'].values, imu_t, df_imu['acc_z'].values)
 
-        dtheta = gyro_z * dt
-        dx     = 0.5 * acc_x * dt**2
-        dy     = 0.5 * acc_y * dt**2
+        # Calculate angular displacement (small angle approximation)
+        d_roll  = gyro_x * dt
+        d_pitch = gyro_y * dt
+        d_yaw   = gyro_z * dt
 
-        cos_t = np.cos(-dtheta)
-        sin_t = np.sin(-dtheta)
+        # Calculate linear displacement approximation from acceleration
+        dx = 0.5 * acc_x * (dt ** 2)
+        dy = 0.5 * acc_y * (dt ** 2)
+        dz = 0.5 * acc_z * (dt ** 2)
 
         x = df_pts['x'].values
         y = df_pts['y'].values
+        z = df_pts['z'].values
 
         df_out = df_pts.copy()
-        df_out['x'] = cos_t * (x - dx) - sin_t * (y - dy)
-        df_out['y'] = sin_t * (x - dx) + cos_t * (y - dy)
+        
+        # Apply the inverse rotation and translation to transform points back to t0
+        df_out['x'] = x - (d_yaw * y) + (d_pitch * z) - dx
+        df_out['y'] = y * (d_yaw * x) - (d_roll * z) - dy
+        df_out['z'] = z - (d_pitch * x) + (d_roll * y) - dz
 
         return df_out
 

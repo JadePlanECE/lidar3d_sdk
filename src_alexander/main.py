@@ -7,7 +7,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument("--file-name", type=str, default="", help="Name of the CSV files stored in the 'data' folder")
     parser.add_argument("--delta", type=float, default=0.1, help="Delta time to get data")
-    parser.add_argument("--angle", type=float, default=45.0, help="Angle of LiDAR when running")
+    parser.add_argument("--angle", type=float, default=30.0, help="Angle of LiDAR when running")
     parser.add_argument("--port", type=int, default=8050, help="Port for Dash visualisation")
     parser.add_argument("--max-pts", type=int, default=200000, help="Max point rows to visualize")
     parser.add_argument("--dark-mode", type=bool, default=True, help="Visalisation in dark mode")
@@ -21,6 +21,7 @@ if __name__ == "__main__":
     processeur = process_csv.Process()
     df_imu = processeur.create_roll_pitch_yaw(df_imu)
     df_pts = processeur.angle_lidar(df_pts, args.angle)
+    df_pts = processeur.size_limits(df_pts, 30)
 
     # Dash vizualisation
     display = visu_csv.Visualisation(df_pts=df_pts, df_imu=df_imu, port=args.port, max_pts=args.max_pts, darkmode=args.dark_mode, delta=args.delta)

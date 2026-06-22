@@ -3,7 +3,7 @@ import sys
 
 FILE = "../data/alexander/points_20230315_152320-lidar1.csv"
 FOLDER = "../data/alexander/split_files"
-SPLIT_NUMBER = 5
+SPLIT_NUMBER = 6
 
 def split_csv(source_filepath, dest_folder):
     if not os.path.exists(dest_folder):

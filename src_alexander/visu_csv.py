@@ -346,7 +346,7 @@ class Visualisation:
                         print("df_pts is not filtred")
                 df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
                 c = self.processeur.corners_process(df_pts_process, z)
-                fig_pts = self.create_pts_figure(filtered_df_pts, c)
+                fig_pts = self.create_pts_figure(self.df_pts, c)
                 return self.update_text_imu(self.df_imu, selected_time, z), fig_pts
 
         print(f"\n--- Server starting on port {self.port} ---")
