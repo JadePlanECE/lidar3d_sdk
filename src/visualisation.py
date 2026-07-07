@@ -350,4 +350,4 @@ class Visualisation:
                 return self.update_text_imu(self.df_imu, selected_time, z), fig_pts
 
         print(f"\n--- Server starting on port {self.port} ---")
-        self.app.run(debug=False, host='0.0.0.0', port=self.port)
+        self.app.run(host='0.0.0.0', port=self.port, debug=False)
