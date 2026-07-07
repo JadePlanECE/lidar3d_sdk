@@ -1,10 +1,10 @@
 import socket
 import struct
 import time
-import math
 
 # Constants
 TIME_OUT = 16.0
+REGISTER_TIME = 120 # 2 minuts
 
 # Frame delimiters
 HEADER_SIZE   = 12
@@ -147,7 +147,7 @@ class Lidar:
         if fn:
             return fn(raw_bytes)
         else:
-            print(f"[Error] Type unknown: {pkt_type} ({len(raw_bytes)} bytes)")
+            print(f"[LiDAR Error] Packet type unknown: {pkt_type} ({len(raw_bytes)} bytes)")
             return None
 
     def _parse_ack_data(self, raw: bytes):
@@ -272,10 +272,11 @@ class Lidar:
 
     def receive_stream(self):
         """Infinite loop processing data frames in real-time"""
-        pts_time = time.time()
+        start = time.time()
+        """pts_time = time.time()
         imu_time = time.time()
         pts = []
-        imu = []
+        imu = []"""
         try:
             while True:
                 try:
@@ -284,21 +285,24 @@ class Lidar:
 
                     if parsed_frame:
                         yield parsed_frame
-                        if parsed_frame['header']['packet_type'] == LIDAR_POINT_DATA_PACKET_TYPE:
+                        """if parsed_frame['header']['packet_type'] == LIDAR_POINT_DATA_PACKET_TYPE:
                             pts.append(time.time() - pts_time)
                             pts_time = time.time()
                         if parsed_frame['header']['packet_type'] == LIDAR_IMU_DATA_PACKET_TYPE:
                             imu.append(time.time() - imu_time)
-                            imu_time = time.time()
+                            imu_time = time.time()"""
+                    
+                    if time.time() - start > REGISTER_TIME:
+                        break # go out of the while loop
                 except socket.timeout:
                     pass
         except KeyboardInterrupt:
             print("\n[Closing] Stopping Parser")
-            mean_pts = sum(pts) / len(pts)
+            """mean_pts = sum(pts) / len(pts)
             mean_imu = sum(imu) / len(imu)
             print(f"[Process] Mean time of detecting lidar points {mean_pts}")
             print(f"[Process] Mean time of detecting imu points {mean_imu}")
             variance_pts = math.sqrt(sum((x - mean_pts) ** 2 for x in pts) / len(pts))
             variance_imu = math.sqrt(sum((x - mean_imu) ** 2 for x in imu) / len(imu))
             print(f"[Process] Variance of lidar points {variance_pts}")
-            print(f"[Process] Variance of imu points {variance_imu}")
+            print(f"[Process] Variance of imu points {variance_imu}")"""
