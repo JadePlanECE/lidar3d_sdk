@@ -115,10 +115,6 @@ class Visualisation:
                             "Acc x: .. m/s", dash.html.Br(),
                             "Acc y: .. m/s", dash.html.Br(),
                             "Acc z: .. m/s", dash.html.Br(),
-                            dash.html.Br(),
-                            "Rot x: .. degrees", dash.html.Br(),
-                            "Rot y: .. degrees", dash.html.Br(),
-                            "Rot z: .. degrees"
                         ],
                         style={
                             'lineHeight': '1.8',
@@ -191,11 +187,11 @@ class Visualisation:
         
         fig = px.scatter_3d(
             df, x='x', y='y', z='z',
-            color='intensity',
+            color='z',
             color_continuous_scale='Plasma',
             range_x=[self.min_x - 1, self.max_x + 1],
             range_y=[self.min_y - 1, self.max_y + 1],
-            opacity=0.4,
+            opacity=0.2,
             title=f"LiDAR Point Cloud ({len(df):,} pts)",
             template=self.colors["plotly_template"]
         )
@@ -224,12 +220,10 @@ class Visualisation:
             text=[f"Dist={round(d_max,4)}"]
         ))
 
-        z_display = df['z'].mean()
-
         # Add Corners
         if c is not None:
             fig.add_trace(go.Scatter3d(
-                x=c[:, 0], y=c[:, 1], z=[z_display] * len(c),
+                x=c[:, 0], y=c[:, 1], z=c[:, 2] * len(c),
                 mode='markers+text',
                 marker=dict(size=6, color=self.colors["marker_corners"], symbol='diamond'),
                 name='Corners',
@@ -245,6 +239,7 @@ class Visualisation:
             plot_bgcolor=self.colors["bg_card"],
             font=dict(color=self.colors["text_main"])
         )
+
         return fig
 
     def create_imu_figure(self, df):
@@ -297,27 +292,14 @@ class Visualisation:
         acc_y_sum = second_df['acc_y'].mean()
         acc_z_sum = second_df['acc_z'].mean() - 9.81 # gravity
 
-        # Sum rotations/quaternions
-        qw_sum = second_df['qw'].mean()
-        qx_sum = second_df['qx'].mean()
-        qy_sum = second_df['qy'].mean()
-        qz_sum = second_df['qz'].mean()
-
-        r = R.from_quat([qx_sum, qy_sum, qz_sum, qw_sum])
-        r_x, r_y, r_z = r.as_euler('xyz', degrees=True)
-
         return [
             f"LiDAR height: {self.train_height-z:.2f} m", dash.html.Br(),
             dash.html.Br(),
             f"Acc x: {acc_x_sum:.3f} m/s", dash.html.Br(),
             f"Acc y: {acc_y_sum:.3f} m/s", dash.html.Br(),
             f"Acc z: {acc_z_sum:.3f} m/s", dash.html.Br(),
-            dash.html.Br(),
-            f"Rot x: {r_x:.3f} degrees", dash.html.Br(),
-            f"Rot y: {r_y:.3f} degrees", dash.html.Br(),
-            f"Rot z: {r_z:.3f} degrees"
         ]
-    
+
     def visualisation_data(self):
         fig_imu = self.create_imu_figure(self.df_imu)
         self.init_app(fig_imu)
@@ -329,25 +311,26 @@ class Visualisation:
             dash.Input('switch', 'value')
         )
         def update_figures(selected_time, no_time):
-            df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
+            if self.df_pts.empty:
+                print("[Warning] Dataset empty (deskew step)")
+
             if no_time:
-                df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
-                c = self.processeur.corners_process(df_pts_process, z)
-                fig_pts = self.create_pts_figure(df_pts_deskew, c)
+                corners, _, df_process = self.processeur.corners_process_adaptive(self.df_pts)
+                fig_pts = self.create_pts_figure(df_process, corners)
                 return "", fig_pts
             else:
                 if (selected_time == self.min_time):
-                    filtered_df_pts = df_pts_deskew[df_pts_deskew['time'].between(selected_time, selected_time + self.delta)].copy()
-                    if (filtered_df_pts.equals(df_pts_deskew)):
+                    filtered_df_pts = self.df_pts[self.df_pts['time'].between(selected_time, selected_time + self.delta)].copy()
+                    if (filtered_df_pts.equals(self.df_pts)):
                         print("df_pts is not filtred")
                 else:
-                    filtered_df_pts = df_pts_deskew[df_pts_deskew['time'].between(selected_time - self.delta, selected_time + self.delta)].copy()
-                    if (filtered_df_pts.equals(df_pts_deskew)):
+                    filtered_df_pts = self.df_pts[self.df_pts['time'].between(selected_time - self.delta, selected_time + self.delta)].copy()
+                    if (filtered_df_pts.equals(self.df_pts)):
                         print("df_pts is not filtred")
-                df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
-                c = self.processeur.corners_process(df_pts_process, z)
-                fig_pts = self.create_pts_figure(self.df_pts, c)
-                return self.update_text_imu(self.df_imu, selected_time, z), fig_pts
+                
+                corners, z_floor, df_process = self.processeur.corners_process_adaptive(filtered_df_pts)
+                fig_pts = self.create_pts_figure(df_process, corners)
+                return self.update_text_imu(self.df_imu, selected_time, z_floor), fig_pts
 
         print(f"\n--- Server starting on port {self.port} ---")
         self.app.run(debug=False, host='0.0.0.0', port=self.port)
