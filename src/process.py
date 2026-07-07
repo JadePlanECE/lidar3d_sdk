@@ -130,7 +130,10 @@ class Process:
         return df[
             (df["x"] < threshold) &
             (df["y"] < threshold) &
-            (df["z"] < threshold)
+            (df["z"] < threshold) &
+            (df["x"] > -threshold) &
+            (df["y"] > -threshold) &
+            (df["z"] > -threshold)
         ].copy()
 
     def create_roll_pitch_yaw(self, df):
@@ -164,38 +167,57 @@ class Process:
     # --- Process ---
     def deskew_points(self, df_pts, df_imu):
         """
-        Vectorized IMU deskew — compensates platform motion within the time window.
-        Reference pose = start of window (t0).
+        Vectorized IMU deskew — corrects LiDAR motion distortion using IMU data
         """
         if df_pts.empty or df_imu.empty:
+            print("[Warning] Datasets empty (deskew step)")
             return df_pts
 
+        # Reference time: first point of the scan (in seconds)
         t0 = df_pts['time'].min()
-        dt = (df_pts['time'] - t0).values  # shape (N,)
 
-        # Build a unified time axis (seconds)
-        imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values * 1e-9
-        pts_t = df_pts['timestamp_total'].values
+        # Heuristic: if timestamps are > 1e12, they are likely in nanoseconds
+        if t0 > 1e12:
+            lidar_t_sec = df_pts['time'].values / 1e9
+            t0_sec = t0 / 1e9
+        else:
+            lidar_t_sec = df_pts['time'].values
+            t0_sec = t0
 
-        # Interpolate yaw rate and accelerations onto each LiDAR point's timestamp
-        # (use cumulative yaw, not yaw itself, for angular displacement)
-        gyro_z  = np.interp(pts_t, imu_t, df_imu['yaw'].values)
-        acc_x   = np.interp(pts_t, imu_t, df_imu['acc_x'].values)
-        acc_y   = np.interp(pts_t, imu_t, df_imu['acc_y'].values)
+        dt = lidar_t_sec - t0_sec  # shape (N,), in seconds
 
-        dtheta = gyro_z * dt
-        dx     = 0.5 * acc_x * dt**2
-        dy     = 0.5 * acc_y * dt**2
+        # Build IMU time axis in seconds
+        imu_t = df_imu['time_sec'].values + df_imu['time_nsec'].values / 1e9
 
-        cos_t = np.cos(-dtheta)
-        sin_t = np.sin(-dtheta)
+        # These should be the raw gyroscope readings from the IMU
+        gyro_x = np.interp(lidar_t_sec, imu_t, df_imu['ang_x'].values)
+        gyro_y = np.interp(lidar_t_sec, imu_t, df_imu['ang_y'].values)
+        gyro_z = np.interp(lidar_t_sec, imu_t, df_imu['ang_z'].values)
+
+        acc_x  = np.interp(lidar_t_sec, imu_t, df_imu['acc_x'].values)
+        acc_y  = np.interp(lidar_t_sec, imu_t, df_imu['acc_y'].values)
+        acc_z  = np.interp(lidar_t_sec, imu_t, df_imu['acc_z'].values)
+
+        # Angular displacement (small angle approximation, radians)
+        d_roll  = gyro_x * dt
+        d_pitch = gyro_y * dt
+        d_yaw   = gyro_z * dt
+
+        # Linear displacement from double-integrating acceleration
+        dx = 0.5 * acc_x * (dt ** 2)
+        dy = 0.5 * acc_y * (dt ** 2)
+        dz = 0.5 * acc_z * (dt ** 2)
 
         x = df_pts['x'].values
         y = df_pts['y'].values
+        z = df_pts['z'].values
 
         df_out = df_pts.copy()
-        df_out['x'] = cos_t * (x - dx) - sin_t * (y - dy)
-        df_out['y'] = sin_t * (x - dx) + cos_t * (y - dy)
+
+        # Inverse (undo motion → bring point back to t0 frame):
+        df_out['x'] =           x + d_yaw  * y - d_pitch * z - dx
+        df_out['y'] = - d_yaw * x +          y + d_roll  * z - dy
+        df_out['z'] = d_pitch * x - d_roll * y +           z - dz
 
         return df_out
 
