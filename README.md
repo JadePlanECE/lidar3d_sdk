@@ -6,14 +6,14 @@ To establish the UDP connection (via Ethernet cable) between the LiDAR and the c
 
 Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adapter to power on the LiDAR.
 
-Open directrly the folder named `original_sdk` to launch LiDAR that way.
+Open directly the folder named `original_sdk` to launch LiDAR that way.
 
 
 ## Configuration of LiDAR
 
-To configure the LiDAR, you'll need to connect it to your computer via Ethernet.
+To configure the LiDAR, you'll need to connect it to your computer via Ethernet cable.
 
-Run the command in a terminal; the goal is to find the name of the Ethernet connection (e.g. enP8p1s0). You will also find IP addressess (inet 192.168.x.x netmask 255.255.255.0).
+Run the command in a terminal. The goal is to find the name of the Ethernet connection (e.g. enP8p1s0). You will also find IP addressess (inet 192.168.x.x netmask 255.255.255.0).
 ```
 ifconfig
 ```
@@ -23,7 +23,7 @@ This command will help you find the name of the connection (e.g. Wired connectio
 nmcli connection show
 ```
 
-Run the commande to check if teh LiDAR is indeed sending data. Do `Ctrl C` to stop (you can also check the IP addresses here).
+Run the commande to check if the LiDAR is indeed sending data. Do `Ctrl C` to stop (you can also check the IP addresses here).
 ```
 sudo tcpdump -i enP8p1s0 -n
 ```
@@ -52,14 +52,12 @@ ping 192.168.1.62
 
 ## Python virtual environment
 
-You need to quit the build folder for the following part (`cd ..`).
-
 Install Python on your system if you haven't already.
 ```
 apt install python3.10-venv
 ```
 
-Create a virtual environment (rename the envirnment as you want).
+Create a virtual environment (rename the environment as you want).
 ```
 python3 -m venv lidar_sdk
 ```
@@ -114,7 +112,31 @@ You can also add arguments:
 - Dar mode (default = True) `--dark-mode`
 
 
+## Processing Data from Another LiDAR
+
+Go on the src_alexander folder.
+```
+cd src_alexander/
+```
+
+Run the following command.
+```
+python main.py
+```
+
+You can also add arguments:
+- Name of the CSV file (default = "-lidar3") `--file-name`
+- Part of the CSV file (default = "1") `--file-part`
+- Changing the interval of time (default = 0.1) `--delta`
+- Angle of the LiDAR when running, in degrees (default = 30) `--angle`
+- Port (default = 8050) `--port`
+- Maximum of points rendering (default = 200 000) `--max-pts`
+- Dar mode (default = True) `--dark-mode`
+
+
 ## How to use original sdk?
+
+Open the projet directly on the folder `original_sdk`.
 
 Compilation
 ```
@@ -129,3 +151,5 @@ Run
 ```
 ../bin/example_lidar_udp
 ```
+
+This does not process the data, it only run the LiDAR and save the data.
