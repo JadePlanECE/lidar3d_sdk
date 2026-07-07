@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import lidar.lidar as lidar
 
 def generate_workmode_mask(wide_fov=False, mode_2d=False, disable_imu=False, serial_mode=False, standby_on_boot=False):
@@ -48,8 +49,9 @@ class LidarManager:
         parser.close()
 
         if self.save:
-            np.save("../data/points.npy", points)
-            np.save("../data/imu.npy", imu_data)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            np.save(f"./data/points_{timestamp}.npy", points)
+            np.save(f"./data/imu_{timestamp}.npy", imu_data)
 
         return points, imu_data
 
