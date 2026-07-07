@@ -8,7 +8,7 @@ if __name__ == "__main__":
     parser.add_argument("--file-name", type=str, default="-lidar3", help="Name of the CSV files stored in the 'data' folder")
     parser.add_argument("--file-part", type=str, default="1", help="Part of the LiDAR CSV files stored in the 'data' folder")
     parser.add_argument("--delta", type=float, default=0.1, help="Delta time to get data")
-    parser.add_argument("--angle", type=float, default=30.0, help="Angle of LiDAR when running")
+    parser.add_argument("--angle", type=float, default=30.0, help="Angle of LiDAR when running (in degrees)")
     parser.add_argument("--port", type=int, default=8050, help="Port for Dash visualisation")
     parser.add_argument("--max-pts", type=int, default=300000, help="Max point rows to visualize")
     parser.add_argument("--dark-mode", type=bool, default=True, help="Visalisation in dark mode")
