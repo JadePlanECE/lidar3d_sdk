@@ -1,0 +1,33 @@
+sudo nano /etc/systemd/system/pin.service
+
+Paste the following:
+
+
+[Unit]
+Description=Lidar 3D Application
+After=network.target
+
+[Service]
+Type=simple
+User=hand-e
+WorkingDirectory=/home/hand-e/Documents/lidar3d_sdk
+ExecStart=/home/hand-e/Documents/lidar3d_sdk/lidar_sdk/bin/python /home/hand-e/Documents/lidar3d_sdk/src/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
+
+Ctrl O -> Enter : to save
+Ctrl X : to exit
+
+
+Reload systemd: sudo systemctl daemon-reload
+Enable service: sudo systemctl enable pin.service
+Verify service: systemctl status pin.service
+Start now: sudo systemctl start pin.service
+
+Disable service: sudo systemctl disable pin.service
+Remove service: sudo rm /etc/systemd/system/pin.service
+		sudo systemctl daemon-reload
