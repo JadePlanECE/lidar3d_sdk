@@ -5,15 +5,20 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.spatial.transform import Rotation as R
+import time
+import threading
+from werkzeug.serving import make_server
+
 import process
 
 class Visualisation:
-    def __init__(self, df_pts, df_imu, port, max_pts, darkmode, delta):
+    def __init__(self, df_pts, df_imu, port, max_pts, darkmode, delta, status):
         self.df_pts = df_pts
         self.df_imu = df_imu
         self.port = port
         self.max_pts = max_pts
         self.delta = delta
+        self.status = status
 
         self.processeur = process.Process()
         min_time, max_time, min_x, max_x, min_y, max_y = self.processeur.calculate_time(self.df_pts)
@@ -224,7 +229,7 @@ class Visualisation:
             text=[f"Dist={round(d_max,4)}"]
         ))
 
-        z_display = df['z'].mean()
+        z_display = df['z'].mean() if not df.empty else 0.0
 
         # Add Corners
         if c is not None:
@@ -317,10 +322,11 @@ class Visualisation:
             f"Rot y: {r_y:.3f} degrees", dash.html.Br(),
             f"Rot z: {r_z:.3f} degrees"
         ]
-    
+
     def visualisation_data(self):
         fig_imu = self.create_imu_figure(self.df_imu)
         self.init_app(fig_imu)
+        df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
 
         @dash.callback(
             dash.Output('imu-info', 'children'),
@@ -329,7 +335,6 @@ class Visualisation:
             dash.Input('switch', 'value')
         )
         def update_figures(selected_time, no_time):
-            df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
             if no_time:
                 df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
                 c = self.processeur.corners_process(df_pts_process, z)
@@ -344,10 +349,33 @@ class Visualisation:
                     filtered_df_pts = df_pts_deskew[df_pts_deskew['time'].between(selected_time - self.delta, selected_time + self.delta)].copy()
                     if (filtered_df_pts.equals(df_pts_deskew)):
                         print("df_pts is not filtred")
-                df_pts_process, z = self.processeur.ceiling_process(df_pts_deskew)
+                df_pts_process, z = self.processeur.ceiling_process(filtered_df_pts)
                 c = self.processeur.corners_process(df_pts_process, z)
                 fig_pts = self.create_pts_figure(df_pts_process, c)
                 return self.update_text_imu(self.df_imu, selected_time, z), fig_pts
 
         print(f"\n--- Server starting on port {self.port} ---")
-        self.app.run(host='0.0.0.0', port=self.port, debug=False)
+        #self.app.run(host='0.0.0.0', port=self.port, debug=False)
+        srv = make_server('0.0.0.0', self.port, self.app.server, threaded=True)
+        
+        # Run the server loop inside a separate background thread
+        server_thread = threading.Thread(target=srv.serve_forever)
+        server_thread.daemon = True
+        server_thread.start()
+
+        try:
+            while self.status.value:
+                """if hasattr(self.status, 'value') and not self.status.value:
+                    print("\n[Status False] Initiating clean server shutdown...")
+                    break
+                elif isinstance(self.status, bool) and not self.status:
+                    print("\n[Status False] Initiating clean server shutdown...")
+                    break"""
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            print("\n[KeyboardInterrupt] Initiating server shutdown...")
+        finally:
+            # Cleanly stop the server and join the background thread
+            srv.shutdown()
+            server_thread.join()
+            print("--- Server safely stopped ---")

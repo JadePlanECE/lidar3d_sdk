@@ -58,11 +58,12 @@ def _build_frame(packet_type: int, payload: bytes) -> bytes:
 
 
 class Lidar:
-    def __init__(self, ip_lidar="192.168.1.62", ip_local="192.168.1.100", port_lidar=6101, port_local=6201):
+    def __init__(self, ip_lidar="192.168.1.62", ip_local="192.168.1.100", port_lidar=6101, port_local=6201, *status):
         self.lidar_ip = ip_lidar
         self.local_ip = ip_local
         self.sending_port = port_lidar
         self.receiving_port = port_local
+        self.status = status
 
         self.sock: socket.socket | None = None
 
@@ -278,7 +279,7 @@ class Lidar:
         pts = []
         imu = []"""
         try:
-            while True:
+            while self.status.value:
                 try:
                     data, _ = self.sock.recvfrom(8192)
                     parsed_frame = self.parse_packet(data)

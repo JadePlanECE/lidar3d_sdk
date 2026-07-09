@@ -12,12 +12,13 @@ def generate_workmode_mask(wide_fov=False, mode_2d=False, disable_imu=False, ser
     return mask
 
 class LidarManager:
-    def __init__(self, delta, save):
+    def __init__(self, delta, save, status):
         self.delta = delta
         self.save = save
+        self.status = status
 
     def get_data(self):
-        parser = lidar.Lidar("192.168.1.62", "192.168.1.100", 6101, 6201)
+        parser = lidar.Lidar("192.168.1.62", "192.168.1.100", 6101, 6201, self.status)
         parser.start_connection()
 
         mask = generate_workmode_mask()

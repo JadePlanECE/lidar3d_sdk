@@ -7,3 +7,4 @@ scipy
 scikit-learn
 dash
 dash-daq
+Jetson.GPIO
