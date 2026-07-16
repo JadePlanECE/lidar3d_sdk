@@ -1,18 +1,15 @@
 import os
 import sys
+import argparse
 
-FILE = "../data/alexander/points_20230315_152320-lidar1.csv"
-FOLDER = "../data/alexander/split_files"
-SPLIT_NUMBER = 6
-
-def split_csv(source_filepath, dest_folder):
+def split_csv(source_filepath, dest_folder, split_number):
     if not os.path.exists(dest_folder):
         os.makedirs(dest_folder)
     
     with open(source_filepath, 'r', encoding='utf-8') as f:
         # Count remaining data rows
         total_lines = sum(1 for _ in f)
-        split_size = max(1, total_lines // SPLIT_NUMBER)
+        split_size = max(1, total_lines // split_number)
         if split_size > 45000000:
             sys.exit(f"[Error] Too much lines to process {split_size}\n")
 
@@ -46,4 +43,10 @@ def split_csv(source_filepath, dest_folder):
     print("Splitting complete!")
 
 if __name__ == "__main__":
-    split_csv(FILE, FOLDER)
+    parser = argparse.ArgumentParser(description=None)
+    parser.add_argument("--file", type=str, default="../data/alexander/points-lidar3.csv", help="Name of the CSV file from the lidar")
+    parser.add_argument("--folder", type=str, default="../data/alexander/points-lidar3", help="Destination folder for split files")
+    parser.add_argument("--split", type=float, default=3, help="Number of split wanted")
+    args = parser.parse_args()
+
+    split_csv(args.file, args.folder, args.split)
