@@ -9,6 +9,26 @@ Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adap
 Open directly the folder named `original_sdk` to launch LiDAR that way.
 
 
+## Configuration of Jetson Orin Nano Super
+
+Run the command on a terminal. The goal is to setup the gpio pins [link here of tuto](https://docs.aerium.co.il/Tutorials/NVIDIA%20Jetson/working-with-gpio).
+```
+sudo /opt/nvidia/jetson-io/jetson-io.py
+```
+
+Select `Configure Jetson 40pin Header`.
+
+Select `Configure header pins manually`.
+
+Go on the pin number you want to activate, and push `space` or `enter` keyboard to change the functions (unused / gpio / i2c2 / pwm / uarta / etc..). In that case, change the pins 11 and 13 into gpio.
+
+After making your selections, choose `Save and reboot to configure pins`. The Jetson will automatically reboot, do not unplug the Jetson during the process.
+
+For the code in the `src` folder to work, you need to build the following electrical circuit:
+
+![electronical_cricuit_diagram](img/electrical_circuit_diagram.png)
+
+
 ## Configuration of LiDAR
 
 To configure the LiDAR, you'll need to connect it to your computer via Ethernet cable.
@@ -106,7 +126,7 @@ python main.py
 You can also add arguments:
 - Use a data file and not launching the liDAR (default = None) `--file-name`
 - Changing the interval of time (default = 0.1) `--delta`
-- Saving or not the data of the LiDAR (default = False) `--save`
+- Saving or not the data of the LiDAR (default = True) `--save`
 - Port (default = 8050) `--port`
 - Maximum of points rendering (default = 200 000) `--max-pts`
 - Dar mode (default = True) `--dark-mode`
@@ -119,12 +139,22 @@ Go on the src_alexander folder.
 cd src_alexander/
 ```
 
+If the CSV files are too big, you can split it with the `split_csv.py` file by running the command:
+```
+python split_csv.py
+```
+
+You can also add arguments (I recommend doing this, since the files probably won't have the same names):
+- Name of the CSV file (default = "../data/alexander/points-lidar3.csv") `--file`
+- Name of the destination folder (default = "../data/alexander/points-lidar3") `--folder`
+- Number of split wanted (default = 3) `--split`
+
 Run the following command.
 ```
 python main.py
 ```
 
-You can also add arguments:
+You can also add arguments (I recommend doing this, since the files probably won't have the same names):
 - Name of the CSV file (default = "-lidar3") `--file-name`
 - Part of the CSV file (default = "1") `--file-part`
 - Changing the interval of time (default = 0.1) `--delta`
