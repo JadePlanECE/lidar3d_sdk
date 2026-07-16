@@ -58,7 +58,7 @@ def _build_frame(packet_type: int, payload: bytes) -> bytes:
 
 
 class Lidar:
-    def __init__(self, ip_lidar="192.168.1.62", ip_local="192.168.1.100", port_lidar=6101, port_local=6201, *status):
+    def __init__(self, ip_lidar="192.168.1.62", ip_local="192.168.1.100", port_lidar=6101, port_local=6201, status=True):
         self.lidar_ip = ip_lidar
         self.local_ip = ip_local
         self.sending_port = port_lidar

@@ -2,39 +2,47 @@ import time
 import Jetson.GPIO as GPIO
 
 # Physical pins
-INPUT_LIDAR = 7
-OUTPUT_LIDAR = 8
-INPUT_VIZ = 11
-OUTPUT_VIZ = 12
+INPUT_LIDAR = 11
+INPUT_VIZ = 13
+TIME_CHECK = 0.2
 
-class pins:
+
+class Pins:
     """
     Verify pins (gpio) of a NVIDIA carrier board
     Using a Jetson Orin Nano Developer Kit Super (Yahboom)
     """
     def __init__(self):
-        GPIO.setmode(GPIO.BCM)
+        GPIO.setmode(GPIO.BOARD)
 
-        # The value may be floats, so we'll probably have to add external pull-down resistor (10k ohm) or configure the pinmux as one
-        # pull_up_down=GPIO.PUD_DOWN is ignore on Jetson
         GPIO.setup(INPUT_LIDAR, GPIO.IN)
         GPIO.setup(INPUT_VIZ, GPIO.IN)
 
-        GPIO.setup(OUTPUT_LIDAR, GPIO.OUT)
-        GPIO.setup(OUTPUT_VIZ, GPIO.OUT)
-
-        GPIO.output(OUTPUT_LIDAR, GPIO.HIGH)
-        GPIO.output(OUTPUT_VIZ, GPIO.HIGH)
-
     def tracking(self, lidar_state, viz_state):
-        while True:
-            lidar_state.value = self.verify_pin(INPUT_LIDAR)
-            viz_state.value = self.verify_pin(INPUT_VIZ)
-            time.sleep(0.2)
-
-    def verify_pin(self, pin):
-        # Verify if there is a jumper on pin and pin+1
-        return GPIO.input(pin)
-
-    def cleanup(self):
-        GPIO.cleanup()
+        """Checking if the buttons are pressed"""
+        try:
+            # checking lidar button first (don't need vizualisation yet)
+            print("[GPIO] Entering LiDAR loop")
+            pre_value_lidar = GPIO.input(INPUT_LIDAR)
+            while lidar_state.value:
+                curr_value_lidar = GPIO.input(INPUT_LIDAR)
+                if curr_value_lidar != pre_value_lidar:
+                    print(f"[GPIO] Stoping LiDAR")
+                    lidar_state.value = False
+                time.sleep(TIME_CHECK)
+            # checking vizualisation button (don't need lidar button anymore)
+            print("[GPIO] Entering vizualisation loop")
+            pre_value_viz = GPIO.input(INPUT_VIZ)
+            while viz_state.value:
+                curr_value_viz = GPIO.input(INPUT_VIZ)
+                if curr_value_viz != pre_value_viz:
+                    print(f"[GPIO] Stoping vizualisation")
+                    viz_state.value = False
+                time.sleep(TIME_CHECK)
+        except KeyboardInterrupt:
+            print("[GPIO] Keyboard interrupt")
+        except Exception as e:
+            print(f"[GPIO error] {e}")
+        finally:
+            GPIO.cleanup()
+            print(f"[GPIO] Cleanup done")

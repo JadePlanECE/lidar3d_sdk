@@ -326,7 +326,8 @@ class Visualisation:
     def visualisation_data(self):
         fig_imu = self.create_imu_figure(self.df_imu)
         self.init_app(fig_imu)
-        df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
+        #df_pts_deskew = self.processeur.deskew_points(self.df_pts, self.df_imu)
+        df_pts_deskew = self.df_pts
 
         @dash.callback(
             dash.Output('imu-info', 'children'),

@@ -8,7 +8,7 @@ import gpio
 import process
 import visualisation as viz
 
-def main(args:argparse.Namespace, checkup_lidar:bool, checkup_viz:bool):
+def main(args:argparse.Namespace, checkup_lidar, checkup_viz):
     if args.file_name == None:
         # Receive data from liDAR (UDP)
         receiver = lidar.LidarManager(
@@ -55,7 +55,7 @@ def main(args:argparse.Namespace, checkup_lidar:bool, checkup_viz:bool):
         max_pts=args.max_pts,
         darkmode=args.dark_mode,
         delta=args.delta,
-        viz_status=checkup_viz
+        status=checkup_viz
     )
     display.visualisation_data()
 
@@ -73,7 +73,8 @@ if __name__ == "__main__":
     checkup_viz = mp.Value('b', True) # Boolean
 
     # Start gpio traking
-    pin_tracking = gpio.pins()
+    pin_tracking = gpio.Pins()
+    stop_event = mp.Event()
     tracking_process = mp.Process(
         target=pin_tracking.tracking,
         args=(checkup_lidar, checkup_viz),
@@ -86,5 +87,8 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n[Main] Interrupted")
     finally:
-        tracking_process.terminate()
-        tracking_process.join()
+        stop_event.set()
+        tracking_process.join(timeout=2)
+        if tracking_process.is_alive():
+            tracking_process.terminate()
+ 
