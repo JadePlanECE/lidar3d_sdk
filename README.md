@@ -111,9 +111,9 @@ rm -rf lidar_sdk
 ```
 
 
-## Launch LiDAR
+## Launch LiDAR manually
 
-Go on the src folder.
+Go on the `src` folder.
 ```
 cd src/
 ```
@@ -130,6 +130,69 @@ You can also add arguments:
 - Port (default = 8050) `--port`
 - Maximum of points rendering (default = 200 000) `--max-pts`
 - Dar mode (default = True) `--dark-mode`
+
+
+## Launch LiDAR automatically
+
+Look in the `service` folder. Open `boot_service.txt` file, and follow the instructions re-write down here.
+
+Run the following command.
+```
+sudo nano /etc/systemd/system/pin.service
+```
+
+Paste the following:
+```
+[Unit]
+Description=Lidar 3D Application
+After=network.target
+
+[Service]
+Type=simple
+User=hand-e
+WorkingDirectory=/home/hand-e/Documents/lidar3d_sdk
+ExecStart=/home/hand-e/Documents/lidar3d_sdk/lidar_sdk/bin/python /home/hand-e/Documents/lidar3d_sdk/src/main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Do `Ctrl o` the `Enter` to save.
+
+Do `Ctrl x` to exit.
+
+To reload systemd.
+```
+sudo systemctl daemon-reload
+```
+
+To enable the service.
+```
+sudo systemctl enable pin.service
+```
+
+To verify the service.
+```
+systemctl status pin.service
+```
+
+To start right now.
+```
+sudo systemctl start pin.service
+```
+
+**Warning:** To disable the service.
+```
+sudo systemctl disable pin.service
+```
+
+**Warning:** To remove service (the reload is necessary).
+```
+sudo rm /etc/systemd/system/pin.service
+sudo systemctl daemon-reload
+```
 
 
 ## Processing Data from Another LiDAR
