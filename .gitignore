@@ -38,6 +38,7 @@
 *.exe
 *.out
 *.app
+*.vscode
 
 # Build directories
 build/
