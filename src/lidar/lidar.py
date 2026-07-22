@@ -2,9 +2,8 @@ import socket
 import struct
 import time
 
-# Constants
-TIME_OUT = 16.0
-REGISTER_TIME = 120 # 2 minuts
+# Timer
+TIME_OUT = 20.0
 
 # Frame delimiters
 HEADER_SIZE   = 12
@@ -273,7 +272,7 @@ class Lidar:
 
     def receive_stream(self):
         """Infinite loop processing data frames in real-time"""
-        start = time.time()
+        #start = time.time()
         """pts_time = time.time()
         imu_time = time.time()
         pts = []
@@ -292,9 +291,6 @@ class Lidar:
                         if parsed_frame['header']['packet_type'] == LIDAR_IMU_DATA_PACKET_TYPE:
                             imu.append(time.time() - imu_time)
                             imu_time = time.time()"""
-                    
-                    if time.time() - start > REGISTER_TIME:
-                        break # go out of the while loop
                 except socket.timeout:
                     pass
         except KeyboardInterrupt:

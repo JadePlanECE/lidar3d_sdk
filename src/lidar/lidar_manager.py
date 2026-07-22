@@ -42,6 +42,8 @@ class LidarManager:
                         frame['info'],
                         frame['data']
                     ])
+                case _:
+                    print(f"[LiDAR] Error: Received unwanted frame paquet_type ({frame['header']['packet_type']})")
 
         points = np.asarray(pts, dtype=object)
         imu_data = np.asarray(imu, dtype=object)
