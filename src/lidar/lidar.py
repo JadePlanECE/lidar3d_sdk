@@ -278,6 +278,7 @@ class Lidar:
         pts = []
         imu = []"""
         try:
+            print("[LiDAR] Running")
             while self.status.value:
                 try:
                     data, _ = self.sock.recvfrom(8192)
