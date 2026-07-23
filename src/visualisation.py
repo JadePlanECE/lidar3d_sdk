@@ -8,8 +8,18 @@ from scipy.spatial.transform import Rotation as R
 import time
 import threading
 from werkzeug.serving import make_server
+import socket
 
 import process
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
 
 class Visualisation:
     def __init__(self, df_pts, df_imu, port, max_pts, darkmode, delta, status):
@@ -358,11 +368,12 @@ class Visualisation:
         print(f"\n--- Server starting on port {self.port} ---")
         #self.app.run(host='0.0.0.0', port=self.port, debug=False)
         srv = make_server('0.0.0.0', self.port, self.app.server, threaded=True)
-        
+
         # Run the server loop inside a separate background thread
         server_thread = threading.Thread(target=srv.serve_forever)
         server_thread.daemon = True
         server_thread.start()
+        print(f"[Visualisation] Start server: http://{get_local_ip()}:{self.port}")
 
         try:
             while self.status.value:
