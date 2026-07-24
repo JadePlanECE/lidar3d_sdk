@@ -154,10 +154,10 @@ class Process:
         return df
     
     def calculate_time(self, df):
-        min_time = df['timestamp_total'].drop_duplicates().nsmallest(2).iloc[-1]
-        max_time = df['timestamp_total'].drop_duplicates().nlargest(2).iloc[-1]
-        #min_time = df['timestamp_total'].min()
-        #max_time = df['timestamp_total'].max()
+        #min_time = df['timestamp_total'].drop_duplicates().nsmallest(2).iloc[-1]
+        #max_time = df['timestamp_total'].drop_duplicates().nlargest(2).iloc[-1]
+        min_time = df['timestamp_total'].min()
+        max_time = df['timestamp_total'].max()
         min_x = df['x'].min()
         min_y = df['y'].min()
         max_x = df['x'].max()
