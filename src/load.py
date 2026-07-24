@@ -1,7 +1,7 @@
 from pathlib import Path
 import numpy as np
 
-DATA_DIR = Path("../data")
+DATA_DIR = Path("./data")
 
 def load_data(file_name=""):
     paths = {
