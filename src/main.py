@@ -30,6 +30,10 @@ def main(args:argparse.Namespace, checkup_lidar, checkup_viz):
     for frame in df_imu:
         df_imu_process.append(processeur.parse_imu(frame))
 
+    if (not df_pts_process) or (not df_imu_process):
+        print("[Main] No data found")
+        return 0
+
     if (df_pts_process[0] is None) or (df_pts_process[0] == []) or (df_pts_process[0] == {}):
         df_pts_process.pop(0)
 
@@ -62,7 +66,7 @@ def main(args:argparse.Namespace, checkup_lidar, checkup_viz):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument("--file-name", type=str, default=None, help="Name of the CSV files stored in the 'data' folder")
-    parser.add_argument("--delta", type=float, default=0.1, help="Delta time to get data")
+    parser.add_argument("--delta", type=float, default=0.5, help="Delta time to get data")
     parser.add_argument("--save", type=bool, default=True, help="Save data in CSV files")
     parser.add_argument("--port", type=int, default=8050, help="Port for Dash visualisation")
     parser.add_argument("--max-pts", type=int, default=200000, help="Max point rows to visualize")
@@ -84,9 +88,8 @@ if __name__ == "__main__":
 
     try:
         main(args, checkup_lidar, checkup_viz)
-    except KeyboardInterrupt:
-        print("\n[Main] Interrupted")
     finally:
+        print("[Main] stopping all processes")
         stop_event.set()
         tracking_process.join(timeout=2)
         if tracking_process.is_alive():
