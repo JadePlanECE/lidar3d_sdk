@@ -2,9 +2,10 @@ numpy
 pandas
 argparse
 matplotlib
-PlotPy
+plotly
 scipy
 scikit-learn
+scikit-image
 dash
 dash-daq
 Jetson.GPIO
