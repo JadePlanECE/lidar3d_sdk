@@ -98,10 +98,123 @@ The official Unitree SDK is supplied as a compiled library (closed-source code) 
 
 ## 5. Data processing (`src/process.py`)
 
+### 5.1 3D Reconstruction
+
+The sensor does not transmit X/Y/Z coordinates but rather **raw distances** along known directions (line angle + angular step), accompanied in each packet by its **factory calibration parameters** (angle offsets, distance scale, distances between mechanical axes, etc.). The reconstruction applies the geometric formulas from the official C++ SDK, transposed into **NumPy vectorised** calculations (the entire data set is processed in a single block, without Python loops — necessary to maintain the processing speed on Jetson).
+
+Filters applied during processing: zero measurements removed, distances outside the sensor’s valid range removed, and a safety cut-off at ±30 m (to eliminate outliers).
+
+### 5.2 Orientation data (IMU)
+
+The quaternions provided by the sensor (a mathematical representation of orientation, insensitive to singularities) are converted into readable **roll / pitch / yaw** angles (in degrees).
+
+Special consideration: the sensor transmits the quaternion in the order `(w, x, y, z)`, whereas the SciPy library expects `(x, y, z, w)`.
+
+### 5.3 Ceiling Detection
+
+Assumption: the ceiling is the dominant horizontal surface above the sensor. Points are grouped by altitude Z (rounded to the nearest centimetre), with each point **weighted by its vertical proximity to the sensor** (a point directly above the sensor is more reliable than a point skimming the sensor at 15 m). The altitude at which the cumulative weight is at its maximum is taken as the ceiling, and all points within 40 cm below this level (and above it) are removed from the point cloud.
+
+### 5.4 Detection of walls and corners
+
+1. **Walls**: a horizontal ‘slice’ is isolated at mid-height between the floor (estimated at the 5th percentile of altitudes) and the ceiling, ±20%. Viewed from above, this slice outlines the room.
+2. **Lines**: the slice is projected onto a 2D grid (5 cm per square), on which a **Hough transform** (a standard algorithm for detecting straight lines in an image) extracts up to 10 dominant lines: these are the walls.
+3. **Corners**: each pair of non-parallel lines is intersected; the intersections located within the cloud’s footprint are candidate corners, deduplicated to within 50 cm.
+
+### 5.5 Motion correction (deskew) — implemented but disabled
+
+A full scan takes some time: if the subject moves during the rotation, the point cloud becomes distorted. A correction using the IMU (interpolation of angular velocities and accelerations at the time of each point) is implemented in `process.py`, but is **currently disabled** in the visualisation (call commented out). Without it, the results are only reliable when the sensor is **stationary**.
+
 ## 6. Visualisation (`src/visualisation.py`)
+
+Web interface built using **Dash/Plotly**, served on port 8050 (URL displayed on launch, accessible from anywhere on the local network):
+
+- Interactive **3D scatter plot** (rotate/zoom with the mouse), coloured by laser return intensity; sampled at a maximum of 200,000 points on screen to ensure smooth performance
+- **Time slider** to browse the session in segments (fixed step size, `--delta`), or a ‘Show all data points’ toggle to display everything
+- **Markers**: LiDAR position, nearest and furthest points (with distances), **detected corners** (diamonds)
+- **IMU panel**: ceiling height (reference 3.00 m), average accelerations and angles for the displayed segment; full acceleration + roll/pitch/yaw plots
+- Dark or light theme (`--dark-mode`).
+
+The web server runs in a separate thread: pressing the **pin 13 button** shuts it down properly, which terminates the programme. 
 
 ## 7. Analysis
 
+### 7.1 Automatic start-up (on-board nominal mode)
+
+A systemd service `pin.service` (see `service/boot_service.txt` and README) launches `src/main.py` when the Jetson boots. Operator scenario, without a display:
+
+1. Power on the Jetson and the LiDAR (12 V) → data acquisition starts automatically.
+2. Press the **pin 11** button → end of data acquisition, save, calculations, start the web server.
+3. View the results in a browser on the local network (port 8050).
+4. Press the button on **pin 13** → the server and programme shut down properly.
+
+### 7.2 Manual launch and replay
+
+```
+cd src/
+python main.py                                # live data acquisition
+python main.py --file-name _20260618_143000   # replay a saved session
+```
+
+Arguments: 
+- `--file-name` (replay .npy)
+- `--delta` (time cursor step)
+- `--save`
+- `--port`
+- `--max-pts`
+- `--dark-mode`
+
+The `src_alexander/` folder provides an equivalent pipeline for CSV files from the other LiDAR (using `split_csv.py` to split large files). Details in the README. 
+
 ## 8. Known limitations and open issues
 
+
+### 8.1 Probable regression: ‘work mode’ packet type
+
+The mode-change command may be using packet type **2002** on the network, rather than **107** as specified by the official constant `LIDAR_WORK_MODE_CONFIG_PACKET_TYPE`. It is possible that, as things stand, the configuration command sent at start-up is likely to be **ignored by the sensor**.
+
+There are no visible symptoms at present as the mask sent is the default mask (standard 3D mode) — but any future attempt to change modes (2D, wide FOV, IMU off, etc.) could fail silently. 
+
+**Fix: one line** (`src/lidar/lidar.py:19`).
+
+### 8.2 Non-functional command-line options
+
+`--save False` and `--dark-mode False` have **no effect**: a classic argparse pitfall (`type=bool` converts any non-empty string to `True`). Replace with `store_true`/`store_false` flags.
+
+### 8.3 Motion correction disabled
+
+See §5.5: sensor in motion = distorted point cloud. Correct if necessary and re-enable.
+
+### 8.4 Processing capacity
+
+The entire session is stored in RAM. For long sessions, it may be necessary to adjust the memory allocation.
+
+### 8.5 GPIO
+
+The `stop_event` created in `main.py` is never passed to the GPIO process, so it is possible that this has no effect (dead code).
+
+### 8.6 Detection settings
+
+The detection settings are hard-coded:
+
+- 5 cm grid
+- max. 10 walls
+- threshold 100 points
+- deduplication 50 cm
+
+For more in-depth testing, these should be passed as arguments.
+
 ## Glossary
+
+| Term | Definition |
+|---|---|
+| **LiDAR** | A sensor that measures distances using the time-of-flight of laser pulses; when rotating, it produces a 3D point cloud. |
+| **IMU** | Inertial measurement unit: accelerometer + gyroscope, provides the sensor’s orientation. |
+| **UDP** | A lightweight, connectionless network protocol, suitable for high-frequency sensor streams. |
+| **CRC-32** | A checksum that detects message corruption. |
+| **Payload** | The ‘payload’ portion of a message, between the header and the trailer. |
+| **Quaternion** | A mathematical representation of a 3D orientation with four components, free from singularities. |
+| **Roll / Pitch / Yaw** | Roll, pitch, yaw: the three standard orientation angles. |
+| **Hough transform** | An algorithm for detecting geometric shapes (in this case, straight lines) in an image. |
+| **Deskew** | Correction of distortion in a scan caused by sensor movement during acquisition. |
+| **Vectorisation (NumPy)** | Calculation applied to entire arrays in one go, orders of magnitude faster than a Python loop. |
+| **systemd / service** | Linux mechanism for automatically launching a programme at boot time. |
