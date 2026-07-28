@@ -20,11 +20,11 @@ Select `Configure Jetson 40pin Header`.
 
 Select `Configure header pins manually`.
 
-Go on the pin number you want to activate, and push `space` or `enter` keyboard to change the functions (unused / gpio / i2c2 / pwm / uarta / etc..). In that case, change the pins 11 and 13 into gpio.
+Go on the pin's number you want to activate, and push `space` or `enter` on the keyboard to change the functions (unused / gpio / i2c2 / pwm / uarta / etc..). In that case, change the pins 11 and 13 into gpio.
 
 After making your selections, choose `Save and reboot to configure pins`. The Jetson will automatically reboot, do not unplug the Jetson during the process.
 
-For the code in the `src` folder to work, you need to build the following electrical circuit:
+To execute properly the code in the `src` folder, you need to build the following electrical circuit:
 
 ![electronical_cricuit_diagram](img/electrical_circuit_diagram.png)
 
@@ -33,17 +33,17 @@ For the code in the `src` folder to work, you need to build the following electr
 
 To configure the LiDAR, you'll need to connect it to your computer via Ethernet cable.
 
-Run the command in a terminal. The goal is to find the name of the Ethernet connection (e.g. enP8p1s0). You will also find IP addressess (inet 192.168.x.x netmask 255.255.255.0).
+The goal is to find the name of the Ethernet connection (e.g. enP8p1s0). You will also find IP addresses (inet 192.168.x.x netmask 255.255.255.0). Run the following command in a terminal.
 ```
 ifconfig
 ```
 
-This command will help you find the name of the connection (e.g. Wired connection 1).
+This command will help you to find the name of the connection (e.g. Wired connection 1).
 ```
 nmcli connection show
 ```
 
-Run the commande to check if the LiDAR is indeed sending data. Do `Ctrl C` to stop (you can also check the IP addresses here).
+Run the following command to check if the LiDAR is sending data. Do `Ctrl C` to stop (you can also check the IP addresses here).
 ```
 sudo tcpdump -i enP8p1s0 -n
 ```
@@ -85,7 +85,6 @@ python3 -m venv lidar_sdk
 Enter the environment.
 ```
 source lidar_sdk/bin/activate
-
 ```
 
 Install pip (if not already here).
@@ -129,7 +128,7 @@ You can also add arguments:
 - Saving or not the data of the LiDAR (default = True) `--save`
 - Port (default = 8050) `--port`
 - Maximum of points rendering (default = 200 000) `--max-pts`
-- Dar mode (default = True) `--dark-mode`
+- Dark mode (default = True) `--dark-mode`
 
 
 ## Launch LiDAR automatically
@@ -158,7 +157,7 @@ Restart=no
 WantedBy=multi-user.target
 ```
 
-Do `Ctrl o` the `Enter` to save.
+Do `Ctrl o` then `Enter` to save.
 
 Do `Ctrl x` to exit.
 
@@ -223,7 +222,7 @@ You can also add arguments (I recommend doing this, since the files probably won
 - Angle of the LiDAR when running, in degrees (default = 30) `--angle`
 - Port (default = 8050) `--port`
 - Maximum of points rendering (default = 200 000) `--max-pts`
-- Dar mode (default = True) `--dark-mode`
+- Dark mode (default = True) `--dark-mode`
 
 
 ## How to use original sdk?
