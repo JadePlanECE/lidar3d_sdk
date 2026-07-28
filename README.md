@@ -8,6 +8,9 @@ Do not use TTL UART connection, we only use UDP. Also plug in the 12V AC/DC adap
 
 Open directly the folder named `original_sdk` to launch LiDAR that way.
 
+## Documentation
+
+- [Technical Specifications](TECHNICAL_SPEC.md)
 
 ## Configuration of Jetson Orin Nano Super
 
