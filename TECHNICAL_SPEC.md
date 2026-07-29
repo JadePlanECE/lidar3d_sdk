@@ -2,6 +2,22 @@
 
 This document outlines the system developed during the work placement: its objective, the hardware, how the software works module by module, and the operating procedure. 
 
+## Glossary
+
+| Term | Definition |
+|---|---|
+| **LiDAR** | A sensor that measures distances using the time-of-flight of laser pulses; when rotating, it produces a 3D point cloud. |
+| **IMU** | Inertial measurement unit: accelerometer + gyroscope, provides the sensor’s orientation. |
+| **UDP** | A lightweight, connectionless network protocol, suitable for high-frequency sensor streams. |
+| **CRC-32** | A checksum that detects message corruption. |
+| **Payload** | The ‘payload’ portion of a message, between the header and the trailer. |
+| **Quaternion** | A mathematical representation of a 3D orientation with four components, free from singularities. |
+| **Roll / Pitch / Yaw** | Roll, pitch, yaw: the three standard orientation angles. |
+| **Hough transform** | An algorithm for detecting geometric shapes (in this case, straight lines) in an image. |
+| **Deskew** | Correction of distortion in a scan caused by sensor movement during acquisition. |
+| **Vectorisation (NumPy)** | Calculation applied to entire arrays in one go, orders of magnitude faster than a Python loop. |
+| **systemd / service** | Linux mechanism for automatically launching a programme at boot time. |
+
 ## 1. Purpose of the system
 
 The system captures a **3D point cloud** of the environment using a rotating LiDAR, and then:
@@ -167,7 +183,6 @@ The `src_alexander/` folder provides an equivalent pipeline for CSV files from t
 
 ## 8. Known limitations and open issues
 
-
 ### 8.1 Probable regression: ‘work mode’ packet type
 
 The mode-change command may be using packet type **2002** on the network, rather than **107** as specified by the official constant `LIDAR_WORK_MODE_CONFIG_PACKET_TYPE`. It is possible that, as things stand, the configuration command sent at start-up is likely to be **ignored by the sensor**.
@@ -203,18 +218,6 @@ The detection settings are hard-coded:
 
 For more in-depth testing, these should be passed as arguments.
 
-## Glossary
+## 8.7 Output
 
-| Term | Definition |
-|---|---|
-| **LiDAR** | A sensor that measures distances using the time-of-flight of laser pulses; when rotating, it produces a 3D point cloud. |
-| **IMU** | Inertial measurement unit: accelerometer + gyroscope, provides the sensor’s orientation. |
-| **UDP** | A lightweight, connectionless network protocol, suitable for high-frequency sensor streams. |
-| **CRC-32** | A checksum that detects message corruption. |
-| **Payload** | The ‘payload’ portion of a message, between the header and the trailer. |
-| **Quaternion** | A mathematical representation of a 3D orientation with four components, free from singularities. |
-| **Roll / Pitch / Yaw** | Roll, pitch, yaw: the three standard orientation angles. |
-| **Hough transform** | An algorithm for detecting geometric shapes (in this case, straight lines) in an image. |
-| **Deskew** | Correction of distortion in a scan caused by sensor movement during acquisition. |
-| **Vectorisation (NumPy)** | Calculation applied to entire arrays in one go, orders of magnitude faster than a Python loop. |
-| **systemd / service** | Linux mechanism for automatically launching a programme at boot time. |
+The output files (points.npy) are raw point clouds. It would be useful to save the data once it has been processed. It would be even more useful to output the LiDAR’s position in the room as a function of time (keyframes).
